@@ -1,0 +1,26 @@
+{
+  "name": "scrcpy-obs-recorder",
+  "version": "1.0.0",
+  "description": "Painel GUI simples: grava vídeo com Scrcpy + áudio com OBS simultaneamente",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "author": "Cleven",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "obs-websocket-js": "^5.0.5"
+  },
+  "build": {
+    "appId": "com.cleven.scrcpyobs",
+    "productName": "ScrcpyOBS Recorder",
+    "win": {
+      "target": "portable"
+    }
+  }
+}

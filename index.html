@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scrcpy + OBS Recorder</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: linear-gradient(135deg, #0f0f13 0%, #1a1a24 100%);
+      color: #e4e4e7;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 420px;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .logo {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #a78bfa, #60a5fa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #a1a1aa;
+      margin-bottom: 40px;
+    }
+
+    .status-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #71717a;
+      transition: all 0.3s ease;
+    }
+
+    .dot.recording {
+      background: #ef4444;
+      box-shadow: 0 0 12px #ef4444;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.15); }
+    }
+
+    .status-text {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .file-path {
+      font-size: 12px;
+      color: #71717a;
+      word-break: break-all;
+      margin-top: 8px;
+      min-height: 32px;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    button {
+      border: none;
+      border-radius: 14px;
+      padding: 18px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-family: inherit;
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: white;
+      box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+    }
+
+    .btn-start:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(34, 197, 94, 0.4);
+    }
+
+    .btn-start:disabled {
+      background: #3f3f46;
+      color: #71717a;
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+
+    .btn-stop {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+      display: none;
+    }
+
+    .btn-stop.visible {
+      display: flex;
+    }
+
+    .btn-stop:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 25px rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      color: #d4d4d8;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 14px;
+      padding: 12px;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .info {
+      margin-top: 32px;
+      font-size: 12px;
+      color: #52525b;
+      line-height: 1.5;
+    }
+
+    .info strong {
+      color: #a1a1aa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Scrcpy + OBS</div>
+    <div class="subtitle">Gravação simultânea de vídeo e áudio</div>
+
+    <div class="status-card">
+      <div class="status-indicator">
+        <div class="dot" id="statusDot"></div>
+        <div class="status-text" id="statusText">Pronto para gravar</div>
+      </div>
+      <div class="file-path" id="filePath">Nenhum arquivo ainda</div>
+    </div>
+
+    <div class="buttons">
+      <button class="btn-start" id="btnStart">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="10"/>
+          <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
+        </svg>
+        INICIAR GRAVAÇÃO
+      </button>
+
+      <button class="btn-stop" id="btnStop">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="1"/>
+        </svg>
+        PARAR GRAVAÇÃO
+      </button>
+
+      <button class="btn-secondary" id="btnFolder">
+        Escolher pasta de gravação
+      </button>
+    </div>
+
+    <div class="info">
+      <strong>Como funciona:</strong><br>
+      • Vídeo: scrcpy (sem áudio)<br>
+      • Áudio: OBS Studio (via WebSocket)<br>
+      • Ambos iniciam e param juntos
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
