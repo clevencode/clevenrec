@@ -12,9 +12,7 @@ const DEFAULT_RECORD_DIR = 'C:\\Users\\Clevy\\Downloads\\screencopy';
 const config = {
   scrcpyPath: process.env.SCRCPY_PATH || 'C:\\Users\\Clevy\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\\scrcpy-win64-v4.0\\scrcpy.exe',
   recordDir: DEFAULT_RECORD_DIR,
-  recordVideoPath: path.join(DEFAULT_RECORD_DIR, 'tutorial.mp4'),
-  videoBitRate: '8000K',
-  maxFps: '30',
+  recordVideoPath: path.join(DEFAULT_RECORD_DIR, 'screenvid.mkv'),
   obsHost: 'localhost',
   obsPort: 4455,
   obsPassword: '',
@@ -23,7 +21,8 @@ const config = {
 const obs = new OBSWebSocket();
 
 function buildRecordPath(dir) {
-  return path.join(dir, 'tutorial.mp4');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return path.join(dir, `screenvid-${stamp}.mkv`);
 }
 
 function createWindow() {
@@ -98,13 +97,12 @@ ipcMain.handle('start-recording', async () => {
     }
 
     // 3. Scrcpy (vídeo)
-    // scrcpy -d --record "...\tutorial.mp4" --video-bit-rate 8000K --max-fps 30 --no-audio
     config.recordVideoPath = buildRecordPath(config.recordDir);
     const scrcpyArgs = [
       '-d',
       '--record', config.recordVideoPath,
-      '--video-bit-rate', config.videoBitRate,
-      '--max-fps', config.maxFps,
+      '--video-bit-rate', '6000K',
+      '--max-fps', '30',
       '--no-audio',
     ];
 
