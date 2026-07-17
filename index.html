@@ -122,6 +122,38 @@
       border-radius: 14px;
     }
 
+    .mode-switch.three {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 2px 0 -6px;
+    }
+
+    .conn-status {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      min-height: 16px;
+    }
+
+    .conn-status.ok { color: var(--accent); }
+    .conn-status.error { color: #ff8d8d; }
+    .conn-status.busy { color: var(--warn); }
+
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238b93a7' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+
     .mode-btn {
       border: none;
       background: transparent;
@@ -308,22 +340,123 @@
     .checks {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
 
-    .check {
+    .toggle-row {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--bg-soft);
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .toggle-row:hover {
+      border-color: rgba(255,255,255,0.16);
+    }
+
+    .toggle-row:focus-within {
+      border-color: rgba(61, 222, 168, 0.45);
+      box-shadow: 0 0 0 3px rgba(61, 222, 168, 0.1);
+    }
+
+    .toggle-row.is-on {
+      border-color: rgba(61, 222, 168, 0.35);
+      background: var(--accent-dim);
+    }
+
+    .toggle-row.is-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .toggle-copy {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .toggle-title {
       font-size: 13px;
+      font-weight: 650;
       color: var(--text);
+      margin-bottom: 3px;
+    }
+
+    .toggle-desc {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .toggle-switch input {
+      position: absolute;
+      opacity: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
       cursor: pointer;
     }
 
-    .check input {
+    .toggle-track {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: 999px;
+      background: #2a3142;
+      border: 1px solid var(--line);
+      transition: background 0.15s ease, border-color 0.15s ease;
+      pointer-events: none;
+    }
+
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
       width: 16px;
       height: 16px;
-      accent-color: var(--accent);
+      border-radius: 50%;
+      background: #d7dbe7;
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+
+    .toggle-switch input:checked + .toggle-track {
+      background: rgba(61, 222, 168, 0.35);
+      border-color: rgba(61, 222, 168, 0.45);
+    }
+
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(18px);
+      background: var(--accent);
+    }
+
+    .toggle-switch input:focus-visible + .toggle-track {
+      outline: 2px solid rgba(61, 222, 168, 0.55);
+      outline-offset: 2px;
+    }
+
+    .options-hint {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .options-hint.warn {
+      color: var(--warn);
     }
 
     .path-row {
@@ -466,24 +599,24 @@
       </div>
     </header>
 
-    <div class="mode-switch" role="tablist">
-      <button class="mode-btn" id="modeCapture" data-mode="capture" type="button">Capturar</button>
-      <button class="mode-btn active" id="modeRecord" data-mode="record" type="button">Gravar</button>
+    <div class="section-label">Modo</div>
+    <div class="mode-switch" role="tablist" aria-label="Modo">
+      <button class="mode-btn" id="modeCapture" data-mode="capture" type="button" aria-selected="false">Capturar</button>
+      <button class="mode-btn active" id="modeRecord" data-mode="record" type="button" aria-selected="true">Gravar</button>
     </div>
 
+    <div class="section-label">Conexão</div>
     <div class="mode-switch" role="tablist" aria-label="Conexão">
-      <button class="mode-btn active" id="connUsb" data-conn="usb" type="button">USB</button>
-      <button class="mode-btn" id="connWifi" data-conn="wifi" type="button">Wi‑Fi</button>
+      <button class="mode-btn active" id="connUsb" data-conn="usb" type="button" aria-selected="true">USB</button>
+      <button class="mode-btn" id="connWifi" data-conn="wifi" type="button" aria-selected="false">Wi‑Fi</button>
     </div>
-    <div class="file-note" id="connStatus" style="margin-top:-8px;margin-bottom:4px;text-align:center">
-      USB: ativa depuração por cabo (adb usb) · Wi‑Fi: ativa ADB TCP
-    </div>
+    <div class="conn-status" id="connStatus">USB pronto — usa o cabo com depuração ativa</div>
 
     <div class="panel">
       <div class="card wifi-only hidden" id="wifiCard">
-        <div class="card-title">ADB Wi‑Fi</div>
+        <div class="card-title">Conectar por Wi‑Fi</div>
         <div class="field">
-          <label for="wifiAddress">Endereço IP do celular</label>
+          <label for="wifiAddress">IP do celular</label>
           <div class="input-shell" id="wifiShell">
             <input
               type="text"
@@ -503,15 +636,12 @@
             <span class="input-suffix" id="wifiPortHint">:5555</span>
             <div class="input-actions">
               <button type="button" id="btnClearWifi" title="Limpar" aria-label="Limpar IP" hidden>×</button>
-              <button type="button" class="btn-connect" id="btnConnectWifi" title="Conectar ADB Wi‑Fi">Conectar</button>
+              <button type="button" class="btn-connect" id="btnConnectWifi" title="Conectar Wi‑Fi">Conectar</button>
             </div>
           </div>
           <div class="field-hint" id="wifiHint">
-            Digite só o IP. A porta 5555 é adicionada automaticamente.
+            Digite só o IP. Na 1ª vez, deixe o USB ligado para autorizar.
           </div>
-        </div>
-        <div class="file-note" style="margin-top:10px">
-          1ª vez: deixe o USB ligado — o app ativa tcpip e pode detectar o IP sozinho.
         </div>
       </div>
 
@@ -558,21 +688,31 @@
       </div>
 
       <div class="card">
-        <div class="card-title">Opções</div>
-        <div class="checks">
-          <label class="check record-only" id="obsCheckWrap">
-            <input type="checkbox" id="useObsAudio" checked>
-            Áudio via OBS + sincronizar ao parar
-          </label>
-          <label class="check">
-            <input type="checkbox" id="stayAwake" checked>
-            Manter tela ligada (--stay-awake)
-          </label>
-          <label class="check">
-            <input type="checkbox" id="turnScreenOff">
-            Desligar tela do celular (--turn-screen-off)
-          </label>
+        <div class="card-title">Comportamento do celular</div>
+
+        <div class="field" style="margin-bottom:12px">
+          <label id="screenLabel">Tela do celular</label>
+          <div class="mode-switch three" role="radiogroup" aria-labelledby="screenLabel">
+            <button class="mode-btn active" type="button" id="screenKeep" data-screen="keep" aria-checked="true">Ligada</button>
+            <button class="mode-btn" type="button" id="screenDefault" data-screen="default" aria-checked="false">Padrão</button>
+            <button class="mode-btn" type="button" id="screenOff" data-screen="off" aria-checked="false">Desligada</button>
+          </div>
+          <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
         </div>
+
+        <input type="checkbox" id="stayAwake" checked hidden>
+        <input type="checkbox" id="turnScreenOff" hidden>
+
+        <label class="toggle-row record-only is-on" id="obsCheckWrap">
+          <span class="toggle-copy">
+            <span class="toggle-title">Áudio via OBS + sync</span>
+            <span class="toggle-desc">Só no modo Gravar: captura áudio no OBS e sincroniza ao parar</span>
+          </span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="useObsAudio" checked>
+            <span class="toggle-track" aria-hidden="true"></span>
+          </span>
+        </label>
       </div>
 
       <div class="card" id="remoteCard">

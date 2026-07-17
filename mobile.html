@@ -56,8 +56,34 @@
       border: 1px solid var(--line); border-radius: 10px; padding: 12px; font: inherit; margin-bottom: 10px;
     }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .check { display: flex; gap: 10px; align-items: center; font-size: 14px; margin: 8px 0; }
-    .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .check { display: none; }
+    .toggle-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .toggle-row {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #1a2030;
+    }
+    .toggle-row.is-on { border-color: rgba(61,222,168,.35); background: rgba(61,222,168,.1); }
+    .toggle-copy { flex: 1; min-width: 0; }
+    .toggle-title { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
+    .toggle-desc { font-size: 12px; color: var(--muted); line-height: 1.35; }
+    .toggle-switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+    .toggle-switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+    .toggle-track {
+      display: block; width: 100%; height: 100%; border-radius: 999px;
+      background: #2a3142; border: 1px solid var(--line); pointer-events: none;
+    }
+    .toggle-track::after {
+      content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+      border-radius: 50%; background: #d7dbe7; transition: transform .15s ease, background .15s ease;
+    }
+    .toggle-switch input:checked + .toggle-track {
+      background: rgba(61,222,168,.35); border-color: rgba(61,222,168,.45);
+    }
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(18px); background: var(--accent);
+    }
+    .options-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.4; }
+    .options-hint.warn { color: #f0b429; }
     .ip-shell {
       display: flex; align-items: center; gap: 0;
       background: #1a2030; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
@@ -143,8 +169,30 @@
       <option value="mkv" selected>MKV</option>
       <option value="mp4">MP4</option>
     </select>
-    <label class="check"><input type="checkbox" id="useObsAudio" checked> Áudio OBS + sync</label>
-    <label class="check"><input type="checkbox" id="stayAwake" checked> Stay awake</label>
+    <div class="label" style="margin-top:8px">Tela do celular</div>
+    <div class="modes" style="margin-bottom:10px">
+      <button type="button" id="screenKeep" class="active">Ligada</button>
+      <button type="button" id="screenDefault">Padrão</button>
+    </div>
+    <div class="modes" style="margin-bottom:10px;grid-template-columns:1fr">
+      <button type="button" id="screenOff">Desligada</button>
+    </div>
+    <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
+
+    <div class="toggle-list" id="obsBlock">
+      <label class="toggle-row is-on" id="obsRow">
+        <span class="toggle-copy">
+          <span class="toggle-title">Áudio OBS + sync</span>
+          <span class="toggle-desc">Só no modo Gravar</span>
+        </span>
+        <span class="toggle-switch">
+          <input type="checkbox" id="useObsAudio" checked>
+          <span class="toggle-track"></span>
+        </span>
+      </label>
+    </div>
+    <input type="checkbox" id="stayAwake" checked hidden>
+    <input type="checkbox" id="turnScreenOff" hidden>
   </div>
 
   <div class="msg" id="msg">Pronto</div>
@@ -155,7 +203,14 @@
   <script>
     let mode = 'record';
     let connection = 'usb';
+    let screenBehavior = 'keep';
     let active = false;
+
+    const SCREEN_HINTS = {
+      keep: 'Mantém a tela acesa durante a sessão.',
+      default: 'O celular segue o tempo de tela padrão.',
+      off: 'Apaga a tela; a imagem continua no PC.',
+    };
 
     const $ = (id) => document.getElementById(id);
 
@@ -196,6 +251,21 @@
       hint.textContent = `OK · ${parsed.host}:5555`;
     }
 
+    function syncScreen() {
+      $('stayAwake').checked = screenBehavior === 'keep';
+      $('turnScreenOff').checked = screenBehavior === 'off';
+      $('screenKeep').classList.toggle('active', screenBehavior === 'keep');
+      $('screenDefault').classList.toggle('active', screenBehavior === 'default');
+      $('screenOff').classList.toggle('active', screenBehavior === 'off');
+      $('optionsHint').classList.remove('warn');
+      $('optionsHint').textContent = SCREEN_HINTS[screenBehavior];
+    }
+
+    function syncObs() {
+      $('obsRow').classList.toggle('is-on', $('useObsAudio').checked);
+      $('obsBlock').style.display = mode === 'record' ? 'flex' : 'none';
+    }
+
     function settings() {
       const parsed = parseWifi($('wifiAddress').value);
       return {
@@ -206,9 +276,9 @@
         maxFps: $('maxFps').value,
         maxSize: $('maxSize').value,
         format: $('format').value,
-        useObsAudio: $('useObsAudio').checked,
-        stayAwake: $('stayAwake').checked,
-        turnScreenOff: false,
+        useObsAudio: mode === 'record' ? $('useObsAudio').checked : false,
+        stayAwake: screenBehavior === 'keep',
+        turnScreenOff: screenBehavior === 'off',
       };
     }
 
@@ -217,6 +287,7 @@
       $('mCapture').classList.toggle('active', m === 'capture');
       $('mRecord').classList.toggle('active', m === 'record');
       $('btnStart').textContent = m === 'record' ? 'Iniciar gravação' : 'Iniciar captura';
+      syncObs();
     }
 
     function setConn(c) {
@@ -224,6 +295,12 @@
       $('cUsb').classList.toggle('active', c === 'usb');
       $('cWifi').classList.toggle('active', c === 'wifi');
       $('wifiCard').style.display = c === 'wifi' ? 'block' : 'none';
+    }
+
+    function setScreen(s) {
+      if (active) return;
+      screenBehavior = s;
+      syncScreen();
     }
 
     function setActive(on, info = {}) {
@@ -242,15 +319,20 @@
 
     $('mCapture').onclick = () => { if (!active) setMode('capture'); };
     $('mRecord').onclick = () => { if (!active) setMode('record'); };
+    $('screenKeep').onclick = () => setScreen('keep');
+    $('screenDefault').onclick = () => setScreen('default');
+    $('screenOff').onclick = () => setScreen('off');
+    $('useObsAudio').onchange = () => syncObs();
+
     $('cUsb').onclick = async () => {
       if (active) return;
       setConn('usb');
       $('msg').textContent = 'Ativando USB…';
       const r = await api('/api/connection', 'POST', settings());
       $('msg').textContent = r.message || (r.success ? 'USB OK' : 'Falha USB');
-      if (!r.success) $('err').textContent = r.message;
-      else $('err').textContent = '';
+      $('err').textContent = r.success ? '' : (r.message || '');
     };
+
     $('cWifi').onclick = async () => {
       if (active) return;
       const parsed = parseWifi($('wifiAddress').value);
@@ -260,13 +342,12 @@
         return;
       }
       setConn('wifi');
-      $('msg').textContent = 'Ativando ADB Wi‑Fi…';
+      $('msg').textContent = 'Ativando Wi‑Fi…';
       const r = await api('/api/connection', 'POST', settings());
       if (r.wifiAddress) $('wifiAddress').value = String(r.wifiAddress).replace(/:5555$/, '');
       updateWifiUI();
       $('msg').textContent = r.message || (r.success ? 'Wi‑Fi OK' : 'Falha Wi‑Fi');
-      if (!r.success) $('err').textContent = r.message;
-      else $('err').textContent = '';
+      $('err').textContent = r.success ? '' : (r.message || '');
     };
 
     $('wifiAddress').addEventListener('input', () => {
@@ -311,10 +392,17 @@
           if (s.settings.maxSize) $('maxSize').value = s.settings.maxSize;
           if (s.settings.format) $('format').value = s.settings.format;
           $('useObsAudio').checked = s.settings.useObsAudio !== false;
-          $('stayAwake').checked = s.settings.stayAwake !== false;
+          if (s.settings.turnScreenOff) screenBehavior = 'off';
+          else if (s.settings.stayAwake !== false) screenBehavior = 'keep';
+          else screenBehavior = 'default';
+          syncScreen();
+          syncObs();
         }
         updateWifiUI();
-        setActive(!!s.isRecording, { videoPath: s.videoPath, message: s.isRecording ? 'Em execução no PC' : 'Conectado ao PC' });
+        setActive(!!s.isRecording, {
+          videoPath: s.videoPath,
+          message: s.isRecording ? 'Em execução no PC' : 'Conectado ao PC',
+        });
       } catch (e) {
         $('err').textContent = 'Sem conexão com o PC. Verifique o Wi‑Fi.';
         $('statusText').textContent = 'Offline';
@@ -357,6 +445,8 @@
 
     setMode('record');
     setConn('usb');
+    syncScreen();
+    syncObs();
     refresh();
     setInterval(refresh, 2500);
   </script>

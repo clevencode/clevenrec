@@ -16,6 +16,11 @@ const els = {
   useObsAudio: document.getElementById('useObsAudio'),
   stayAwake: document.getElementById('stayAwake'),
   turnScreenOff: document.getElementById('turnScreenOff'),
+  obsCheckWrap: document.getElementById('obsCheckWrap'),
+  optionsHint: document.getElementById('optionsHint'),
+  screenKeep: document.getElementById('screenKeep'),
+  screenDefault: document.getElementById('screenDefault'),
+  screenOff: document.getElementById('screenOff'),
   recordDir: document.getElementById('recordDir'),
   filePath: document.getElementById('filePath'),
   btnFolder: document.getElementById('btnFolder'),
@@ -33,9 +38,17 @@ const els = {
 
 let mode = 'record';
 let connection = 'usb';
+let screenBehavior = 'keep'; // keep | default | off
 let isActive = false;
+let isConnecting = false;
 
 const IP_HOST_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+
+const SCREEN_HINTS = {
+  keep: 'Mantém a tela acesa durante a sessão.',
+  default: 'O celular segue o tempo de tela padrão.',
+  off: 'Apaga a tela do celular; a imagem continua no PC.',
+};
 
 function normalizeWifiInput(raw) {
   return String(raw || '')
@@ -47,7 +60,7 @@ function normalizeWifiInput(raw) {
 
 function parseWifiAddress(raw) {
   const value = normalizeWifiInput(raw);
-  if (!value) return { empty: true, valid: true, host: '', display: '', port: '5555', full: '' };
+  if (!value) return { empty: true, valid: true, host: '', port: '5555', full: '' };
 
   const [host, portPart] = value.split(':');
   const octets = host.split('.');
@@ -70,7 +83,6 @@ function parseWifiAddress(raw) {
     valid: isValid,
     host,
     port,
-    display: host,
     full: isValid ? `${host}:${port}` : value,
   };
 }
@@ -82,9 +94,8 @@ function updateWifiFieldUI() {
 
   if (els.btnClearWifi) els.btnClearWifi.hidden = !hasText;
   if (els.wifiPortHint) {
-    els.wifiPortHint.style.opacity = parsed.empty || (hasText && els.wifiAddress.value.includes(':')) ? '0.35' : '1';
+    els.wifiPortHint.style.opacity = parsed.empty || els.wifiAddress.value.includes(':') ? '0.35' : '1';
   }
-
   if (!els.wifiShell || !els.wifiHint) return;
 
   els.wifiShell.classList.remove('is-invalid', 'is-valid');
@@ -92,8 +103,8 @@ function updateWifiFieldUI() {
   els.wifiAddress.setAttribute('aria-invalid', 'false');
 
   if (parsed.empty) {
-    els.wifiHint.textContent = 'Digite só o IP. A porta 5555 é adicionada automaticamente.';
-    if (els.btnConnectWifi) els.btnConnectWifi.disabled = false; // ainda pode detectar via USB
+    els.wifiHint.textContent = 'Digite só o IP. Na 1ª vez, deixe o USB ligado para autorizar.';
+    if (els.btnConnectWifi) els.btnConnectWifi.disabled = isActive || isConnecting;
     return;
   }
 
@@ -109,17 +120,64 @@ function updateWifiFieldUI() {
   els.wifiShell.classList.add('is-valid');
   els.wifiHint.classList.add('ok');
   els.wifiHint.textContent = `Pronto · conectará em ${parsed.full}`;
-  if (els.btnConnectWifi) els.btnConnectWifi.disabled = false;
+  if (els.btnConnectWifi) els.btnConnectWifi.disabled = isActive || isConnecting;
 }
 
 function getWifiAddressForApi() {
   const parsed = parseWifiAddress(els.wifiAddress.value);
   if (parsed.empty) return '';
   if (!parsed.valid) return els.wifiAddress.value.trim();
-  return parsed.host; // main adiciona :5555
+  return parsed.host;
+}
+
+function applyScreenBehaviorToCheckboxes() {
+  els.stayAwake.checked = screenBehavior === 'keep';
+  els.turnScreenOff.checked = screenBehavior === 'off';
+}
+
+function syncScreenBehaviorFromCheckboxes() {
+  if (els.turnScreenOff.checked) screenBehavior = 'off';
+  else if (els.stayAwake.checked) screenBehavior = 'keep';
+  else screenBehavior = 'default';
+}
+
+function setScreenBehavior(next) {
+  if (isActive) return;
+  screenBehavior = next;
+  applyScreenBehaviorToCheckboxes();
+  syncScreenUI();
+  window.api.saveSettings(getSettings());
+}
+
+function syncScreenUI() {
+  const map = {
+    keep: els.screenKeep,
+    default: els.screenDefault,
+    off: els.screenOff,
+  };
+
+  Object.entries(map).forEach(([key, btn]) => {
+    if (!btn) return;
+    const active = screenBehavior === key;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.disabled = isActive;
+  });
+
+  if (els.optionsHint) {
+    els.optionsHint.classList.remove('warn');
+    els.optionsHint.textContent = SCREEN_HINTS[screenBehavior] || '';
+  }
+}
+
+function syncObsToggle() {
+  if (!els.obsCheckWrap || !els.useObsAudio) return;
+  els.obsCheckWrap.classList.toggle('is-on', !!els.useObsAudio.checked);
+  els.obsCheckWrap.classList.toggle('is-disabled', !!els.useObsAudio.disabled);
 }
 
 function getSettings() {
+  applyScreenBehaviorToCheckboxes();
   return {
     mode,
     connection,
@@ -128,48 +186,83 @@ function getSettings() {
     maxFps: els.maxFps.value,
     maxSize: els.maxSize.value,
     format: els.format.value,
-    useObsAudio: els.useObsAudio.checked,
-    stayAwake: els.stayAwake.checked,
-    turnScreenOff: els.turnScreenOff.checked,
+    useObsAudio: mode === 'record' ? els.useObsAudio.checked : false,
+    stayAwake: screenBehavior === 'keep',
+    turnScreenOff: screenBehavior === 'off',
   };
+}
+
+function setConnStatus(text, state = '') {
+  if (!els.connStatus) return;
+  els.connStatus.textContent = text;
+  els.connStatus.classList.remove('ok', 'error', 'busy');
+  if (state) els.connStatus.classList.add(state);
 }
 
 function applyModeUI() {
   const isRecord = mode === 'record';
   els.modeCapture.classList.toggle('active', !isRecord);
   els.modeRecord.classList.toggle('active', isRecord);
+  els.modeCapture.setAttribute('aria-selected', (!isRecord).toString());
+  els.modeRecord.setAttribute('aria-selected', isRecord.toString());
 
   document.querySelectorAll('.record-only').forEach((el) => {
     el.classList.toggle('hidden', !isRecord);
   });
 
+  // OBS só faz sentido em gravar
+  if (!isRecord) {
+    // keep checkbox state, but don't send useObsAudio when capturing
+  }
+
   els.btnStartLabel.textContent = isRecord ? 'Iniciar gravação' : 'Iniciar captura';
   els.hintText.textContent = isRecord
-    ? `Gravar via ${connection.toUpperCase()}: vídeo scrcpy + áudio OBS → sync`
-    : `Capturar via ${connection.toUpperCase()}: espelha a tela sem salvar arquivo`;
+    ? (els.useObsAudio.checked
+      ? `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: vídeo + áudio OBS sincronizados`
+      : `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: só vídeo scrcpy`)
+    : `Capturar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: espelha a tela, sem salvar arquivo`;
 
   if (!isActive) {
     els.statusText.textContent = isRecord ? 'Pronto para gravar' : 'Pronto para capturar';
   }
+
+  syncObsToggle();
+  syncScreenUI();
 }
 
 function applyConnectionUI() {
   const isWifi = connection === 'wifi';
   els.connUsb.classList.toggle('active', !isWifi);
   els.connWifi.classList.toggle('active', isWifi);
+  els.connUsb.setAttribute('aria-selected', (!isWifi).toString());
+  els.connWifi.setAttribute('aria-selected', isWifi.toString());
+
   document.querySelectorAll('.wifi-only').forEach((el) => {
     el.classList.toggle('hidden', !isWifi);
   });
+
+  if (!isConnecting) {
+    setConnStatus(
+      isWifi
+        ? 'Wi‑Fi: informe o IP ou conecte com USB na 1ª vez'
+        : 'USB pronto — usa o cabo com depuração ativa'
+    );
+  }
+
   applyModeUI();
+  updateWifiFieldUI();
 }
 
 function setControlsEnabled(enabled) {
-  [els.modeCapture, els.modeRecord, els.connUsb, els.connWifi, els.wifiAddress,
-    els.btnClearWifi, els.btnConnectWifi,
-    els.bitrate, els.maxFps, els.maxSize, els.format,
-    els.useObsAudio, els.stayAwake, els.turnScreenOff, els.btnFolder].forEach((el) => {
+  [
+    els.modeCapture, els.modeRecord, els.connUsb, els.connWifi, els.wifiAddress,
+    els.btnClearWifi, els.btnConnectWifi, els.bitrate, els.maxFps, els.maxSize, els.format,
+    els.useObsAudio, els.btnFolder, els.screenKeep, els.screenDefault, els.screenOff,
+  ].forEach((el) => {
     if (el) el.disabled = !enabled;
   });
+  syncObsToggle();
+  syncScreenUI();
 }
 
 function setActiveState(active, info = {}) {
@@ -211,12 +304,15 @@ els.modeRecord.addEventListener('click', () => {
 });
 
 async function switchConnection(next) {
-  if (isActive) return;
+  if (isActive || isConnecting) return;
 
   if (next === 'wifi') {
     const parsed = parseWifiAddress(els.wifiAddress.value);
     if (!parsed.empty && !parsed.valid) {
       updateWifiFieldUI();
+      applyConnectionUI();
+      connection = 'wifi';
+      applyConnectionUI();
       els.wifiAddress.focus();
       return;
     }
@@ -224,36 +320,43 @@ async function switchConnection(next) {
 
   connection = next;
   applyConnectionUI();
-
-  if (els.connStatus) {
-    els.connStatus.textContent = next === 'wifi'
-      ? 'Ativando ADB Wi‑Fi (tcpip + connect)…'
-      : 'Ativando depuração USB (adb usb)…';
-  }
+  isConnecting = true;
+  setControlsEnabled(false);
+  setConnStatus(
+    next === 'wifi' ? 'Ativando conexão Wi‑Fi…' : 'Ativando conexão USB…',
+    'busy'
+  );
 
   const result = await window.api.activateConnection({
     connection: next,
     wifiAddress: getWifiAddressForApi(),
   });
 
+  isConnecting = false;
   window.api.saveSettings(getSettings());
 
   if (result.wifiAddress && els.wifiAddress) {
     els.wifiAddress.value = String(result.wifiAddress).replace(/:5555$/, '');
-    updateWifiFieldUI();
   }
 
-  if (els.connStatus) {
-    els.connStatus.textContent = result.message || (result.success ? 'OK' : 'Falha');
-  }
+  setControlsEnabled(!isActive);
+  applyConnectionUI();
+  updateWifiFieldUI();
 
-  if (!result.success) {
-    alert(result.message);
+  if (result.success) {
+    setConnStatus(result.message || (next === 'wifi' ? 'Wi‑Fi conectado' : 'USB ativo'), 'ok');
+  } else {
+    setConnStatus(result.message || 'Falha na conexão', 'error');
   }
 }
 
 els.connUsb.addEventListener('click', () => switchConnection('usb'));
 els.connWifi.addEventListener('click', () => switchConnection('wifi'));
+
+[els.screenKeep, els.screenDefault, els.screenOff].forEach((btn) => {
+  if (!btn) return;
+  btn.addEventListener('click', () => setScreenBehavior(btn.dataset.screen));
+});
 
 if (els.wifiAddress) {
   els.wifiAddress.addEventListener('input', () => {
@@ -272,15 +375,16 @@ if (els.wifiAddress) {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData).getData('text');
     const cleaned = normalizeWifiInput(text);
-    document.execCommand('insertText', false, cleaned);
+    const start = els.wifiAddress.selectionStart || 0;
+    const end = els.wifiAddress.selectionEnd || 0;
+    const value = els.wifiAddress.value;
+    els.wifiAddress.value = normalizeWifiInput(value.slice(0, start) + cleaned + value.slice(end));
     updateWifiFieldUI();
   });
 
   els.wifiAddress.addEventListener('blur', () => {
     const parsed = parseWifiAddress(els.wifiAddress.value);
-    if (parsed.valid && !parsed.empty) {
-      els.wifiAddress.value = parsed.host;
-    }
+    if (parsed.valid && !parsed.empty) els.wifiAddress.value = parsed.host;
     updateWifiFieldUI();
     window.api.saveSettings(getSettings());
   });
@@ -288,9 +392,7 @@ if (els.wifiAddress) {
   els.wifiAddress.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (els.btnConnectWifi && !els.btnConnectWifi.disabled) {
-        els.btnConnectWifi.click();
-      }
+      if (els.btnConnectWifi && !els.btnConnectWifi.disabled) els.btnConnectWifi.click();
     }
   });
 }
@@ -316,8 +418,14 @@ if (els.btnConnectWifi) {
   });
 }
 
-['bitrate', 'maxFps', 'maxSize', 'format', 'useObsAudio', 'stayAwake', 'turnScreenOff'].forEach((id) => {
+['bitrate', 'maxFps', 'maxSize', 'format'].forEach((id) => {
   els[id].addEventListener('change', () => window.api.saveSettings(getSettings()));
+});
+
+els.useObsAudio.addEventListener('change', () => {
+  syncObsToggle();
+  applyModeUI();
+  window.api.saveSettings(getSettings());
 });
 
 els.btnFolder.addEventListener('click', async () => {
@@ -329,6 +437,15 @@ els.btnFolder.addEventListener('click', async () => {
 });
 
 els.btnStart.addEventListener('click', async () => {
+  if (connection === 'wifi') {
+    const parsed = parseWifiAddress(els.wifiAddress.value);
+    if (!parsed.empty && !parsed.valid) {
+      updateWifiFieldUI();
+      els.wifiAddress.focus();
+      return;
+    }
+  }
+
   els.btnStart.disabled = true;
   els.btnStartLabel.textContent = 'Iniciando...';
 
@@ -383,7 +500,7 @@ window.api.onRecordingError((msg) => {
 
 els.btnCopyRemote.addEventListener('click', async () => {
   const url = els.remoteUrl.textContent;
-  if (!url || url.includes('…') || url.includes('falhou')) return;
+  if (!url || url.includes('…') || url.includes('falhou') || url.includes('indisponível')) return;
   try {
     await navigator.clipboard.writeText(url);
     els.btnCopyRemote.textContent = 'Copiado!';
@@ -418,8 +535,13 @@ window.api.getStatus().then((status) => {
     els.useObsAudio.checked = s.useObsAudio !== false;
     els.stayAwake.checked = s.stayAwake !== false;
     els.turnScreenOff.checked = !!s.turnScreenOff;
+    if (els.stayAwake.checked && els.turnScreenOff.checked) {
+      els.turnScreenOff.checked = false;
+    }
+    syncScreenBehaviorFromCheckboxes();
   }
   applyConnectionUI();
+  syncScreenUI();
   updateWifiFieldUI();
   if (status.isRecording) setActiveState(true, { videoPath: status.videoPath });
   if (status.remote) showRemoteInfo(status.remote);
