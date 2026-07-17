@@ -19,6 +19,7 @@ const els = {
   audioOff: document.getElementById('audioOff'),
   audioOn: document.getElementById('audioOn'),
   audioHint: document.getElementById('audioHint'),
+  modeHint: document.getElementById('modeHint'),
   optionsHint: document.getElementById('optionsHint'),
   screenKeep: document.getElementById('screenKeep'),
   screenDefault: document.getElementById('screenDefault'),
@@ -33,6 +34,8 @@ const els = {
   statusText: document.getElementById('statusText'),
   hintText: document.getElementById('hintText'),
   connStatus: document.getElementById('connStatus'),
+  qualityTitle: document.getElementById('qualityTitle'),
+  qualityHint: document.getElementById('qualityHint'),
   remoteUrl: document.getElementById('remoteUrl'),
   remoteQr: document.getElementById('remoteQr'),
   btnCopyRemote: document.getElementById('btnCopyRemote'),
@@ -43,6 +46,7 @@ let connection = 'usb';
 let screenBehavior = 'keep'; // keep | default | off
 let isActive = false;
 let isConnecting = false;
+let sessionHadAudio = false;
 
 const IP_HOST_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 
@@ -51,6 +55,63 @@ const SCREEN_HINTS = {
   default: 'O celular segue o tempo de tela padrão.',
   off: 'Apaga a tela do celular; a imagem continua no PC.',
 };
+
+const AUDIO_HINTS = {
+  off: 'Grava só o vídeo do scrcpy. OBS e ffmpeg não são necessários.',
+  on: 'Se o OBS estiver fechado, o ClevenRec abre em segundo plano e sincroniza o áudio ao parar.',
+};
+
+function connLabel() {
+  return connection === 'wifi' ? 'Wi‑Fi' : 'USB';
+}
+
+function withAudioSelected() {
+  return !!els.useObsAudio?.checked;
+}
+
+function updateSessionCopy() {
+  const isRecord = mode === 'record';
+  const audio = withAudioSelected();
+
+  if (els.modeHint) {
+    els.modeHint.textContent = isRecord
+      ? 'Gravar salva um arquivo no PC.'
+      : 'Capturar só espelha a tela — sem arquivo, sem OBS.';
+  }
+
+  if (els.qualityTitle) {
+    els.qualityTitle.textContent = isRecord ? 'Qualidade do arquivo' : 'Qualidade do espelho';
+  }
+  if (els.qualityHint) {
+    els.qualityHint.textContent = isRecord
+      ? 'Bitrate, FPS e resolução do vídeo gravado pelo scrcpy.'
+      : 'Afeta só o espelhamento na tela — nada é salvo.';
+  }
+
+  if (els.hintText) {
+    if (!isRecord) {
+      els.hintText.textContent = `Capturar via ${connLabel()}: espelha a tela, sem arquivo.`;
+    } else if (audio) {
+      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + áudio OBS → sync ao parar.`;
+    } else {
+      els.hintText.textContent = `Gravar via ${connLabel()}: só vídeo scrcpy (sem OBS).`;
+    }
+  }
+
+  if (!isActive && els.filePath && isRecord) {
+    const current = els.filePath.textContent || '';
+    const isResult = /^(Salvo:|Próximo:)/.test(current);
+    if (!isResult) {
+      els.filePath.textContent = audio
+        ? 'Ao parar: salva vídeo e gera arquivo -sync com áudio OBS'
+        : 'Ao parar: salva só o vídeo scrcpy';
+    }
+  }
+
+  if (!isActive && els.statusText) {
+    els.statusText.textContent = isRecord ? 'Pronto para gravar' : 'Pronto para capturar';
+  }
+}
 
 function normalizeWifiInput(raw) {
   return String(raw || '')
@@ -172,14 +233,9 @@ function syncScreenUI() {
   }
 }
 
-const AUDIO_HINTS = {
-  off: 'Só vídeo scrcpy — sem OBS e sem sync de áudio.',
-  on: 'Com áudio: OBS captura o som e o ClevenRec sincroniza ao parar.',
-};
-
 function syncAudioUI() {
   if (!els.useObsAudio || !els.audioOff || !els.audioOn) return;
-  const withAudio = !!els.useObsAudio.checked;
+  const withAudio = withAudioSelected();
   els.audioOff.classList.toggle('active', !withAudio);
   els.audioOn.classList.toggle('active', withAudio);
   els.audioOff.setAttribute('aria-checked', (!withAudio).toString());
@@ -234,16 +290,8 @@ function applyModeUI() {
   });
 
   els.btnStartLabel.textContent = isRecord ? 'Iniciar gravação' : 'Iniciar captura';
-  els.hintText.textContent = isRecord
-    ? (els.useObsAudio.checked
-      ? `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: vídeo + áudio OBS sincronizados`
-      : `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: só vídeo (sem áudio)`)
-    : `Capturar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: espelha a tela, sem salvar arquivo`;
 
-  if (!isActive) {
-    els.statusText.textContent = isRecord ? 'Pronto para gravar' : 'Pronto para capturar';
-  }
-
+  updateSessionCopy();
   syncAudioUI();
   syncScreenUI();
 }
@@ -289,7 +337,11 @@ function setActiveState(active, info = {}) {
 
   if (active) {
     els.statusPill.classList.add('active');
-    els.statusText.textContent = mode === 'record' ? 'GRAVANDO' : 'CAPTURANDO';
+    if (mode === 'record') {
+      els.statusText.textContent = sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO';
+    } else {
+      els.statusText.textContent = 'CAPTURANDO';
+    }
     els.btnStart.style.display = 'none';
     els.btnStop.classList.add('visible');
     els.btnStop.disabled = false;
@@ -297,8 +349,13 @@ function setActiveState(active, info = {}) {
       els.filePath.textContent = info.videoPath;
     } else if (mode === 'capture') {
       els.filePath.textContent = 'Espelhamento ativo (sem arquivo)';
+    } else if (sessionHadAudio) {
+      els.filePath.textContent = 'Gravando vídeo + áudio OBS…';
+    } else {
+      els.filePath.textContent = 'Gravando só vídeo…';
     }
   } else {
+    sessionHadAudio = false;
     els.statusPill.classList.remove('active');
     els.btnStart.style.display = 'flex';
     els.btnStart.disabled = false;
@@ -464,11 +521,14 @@ els.btnStart.addEventListener('click', async () => {
   els.btnStart.disabled = true;
   els.btnStartLabel.textContent = 'Iniciando...';
 
-  const result = await window.api.startRecording(getSettings());
+  const settings = getSettings();
+  sessionHadAudio = settings.mode === 'record' && !!settings.useObsAudio;
+  const result = await window.api.startRecording(settings);
 
   if (result.success) {
     setActiveState(true, result);
   } else {
+    sessionHadAudio = false;
     alert(result.message);
     els.btnStart.disabled = false;
     applyModeUI();
@@ -477,7 +537,9 @@ els.btnStart.addEventListener('click', async () => {
 
 els.btnStop.addEventListener('click', async () => {
   els.btnStop.disabled = true;
-  els.btnStop.textContent = 'Parando...';
+  const syncing = sessionHadAudio;
+  els.btnStop.textContent = syncing ? 'Sincronizando…' : 'Parando…';
+  if (syncing) els.statusText.textContent = 'SINCRONIZANDO';
 
   const result = await window.api.stopRecording();
 
@@ -490,6 +552,11 @@ els.btnStop.addEventListener('click', async () => {
     }
   } else {
     alert(result.message);
+    if (isActive) {
+      els.statusText.textContent = mode === 'record'
+        ? (sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO')
+        : 'CAPTURANDO';
+    }
   }
 
   els.btnStop.disabled = false;
@@ -501,6 +568,8 @@ els.btnStop.addEventListener('click', async () => {
 
 window.api.onRecordingStarted((data) => {
   if (data.mode) mode = data.mode;
+  if (typeof data.useObsAudio === 'boolean') sessionHadAudio = !!data.useObsAudio;
+  else if (!sessionHadAudio) sessionHadAudio = mode === 'record' && withAudioSelected();
   setActiveState(true, data);
 });
 
@@ -512,6 +581,13 @@ window.api.onRecordingError((msg) => {
   alert('Erro: ' + msg);
   setActiveState(false);
 });
+
+if (window.api.onStatusText) {
+  window.api.onStatusText((text) => {
+    if (els.statusText && text) els.statusText.textContent = text;
+    if (els.btnStartLabel && !isActive && text) els.btnStartLabel.textContent = text;
+  });
+}
 
 els.btnCopyRemote.addEventListener('click', async () => {
   const url = els.remoteUrl.textContent;
@@ -558,7 +634,11 @@ window.api.getStatus().then((status) => {
   applyConnectionUI();
   syncScreenUI();
   updateWifiFieldUI();
-  if (status.isRecording) setActiveState(true, { videoPath: status.videoPath });
+  if (status.isRecording) {
+    sessionHadAudio = !!status.useObsAudio;
+    if (status.mode) mode = status.mode;
+    setActiveState(true, { videoPath: status.videoPath });
+  }
   if (status.remote) showRemoteInfo(status.remote);
 });
 

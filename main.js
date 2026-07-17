@@ -33,36 +33,50 @@ function firstExisting(candidates) {
   return null;
 }
 
-function resolveScrcpyPath() {
-  if (process.env.SCRCPY_PATH) {
-    const envPath = process.env.SCRCPY_PATH;
-    if (fs.existsSync(envPath)) return envPath;
-  }
-  const fromPath = which('scrcpy') || which('scrcpy.exe');
-  if (fromPath) return fromPath;
-
+function findInWingetPackages(exeName, packageHint) {
   const localAppData = process.env.LOCALAPPDATA || '';
   const wingetRoot = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
-  if (fs.existsSync(wingetRoot)) {
-    try {
-      const matches = fs.readdirSync(wingetRoot)
-        .filter((name) => /scrcpy/i.test(name))
-        .flatMap((pkg) => {
-          const pkgDir = path.join(wingetRoot, pkg);
-          try {
-            return fs.readdirSync(pkgDir).map((child) => path.join(pkgDir, child, 'scrcpy.exe'));
-          } catch (_) {
-            return [];
+  if (!fs.existsSync(wingetRoot)) return null;
+
+  try {
+    const hint = new RegExp(packageHint, 'i');
+    const matches = fs.readdirSync(wingetRoot)
+      .filter((name) => hint.test(name))
+      .flatMap((pkg) => {
+        const pkgDir = path.join(wingetRoot, pkg);
+        const found = [];
+        const walk = (dir, depth = 0) => {
+          if (depth > 3) return;
+          let entries = [];
+          try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+          for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            if (entry.isFile() && entry.name.toLowerCase() === exeName.toLowerCase()) {
+              found.push(full);
+            } else if (entry.isDirectory()) {
+              walk(full, depth + 1);
+            }
           }
-        });
-      const found = firstExisting(matches);
-      if (found) return found;
-    } catch (_) {
-      // ignore
-    }
+        };
+        walk(pkgDir);
+        return found;
+      });
+    return firstExisting(matches);
+  } catch (_) {
+    return null;
+  }
+}
+
+function resolveScrcpyPath() {
+  if (process.env.SCRCPY_PATH && fs.existsSync(process.env.SCRCPY_PATH)) {
+    return process.env.SCRCPY_PATH;
   }
 
-  return 'scrcpy';
+  return firstExisting([
+    which('scrcpy'),
+    which('scrcpy.exe'),
+    findInWingetPackages('scrcpy.exe', 'scrcpy'),
+  ]) || 'scrcpy';
 }
 
 function resolveFfmpegPath() {
@@ -71,13 +85,32 @@ function resolveFfmpegPath() {
   }
 
   const localAppData = process.env.LOCALAPPDATA || '';
-  const candidates = [
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+
+  return firstExisting([
     which('ffmpeg'),
     which('ffmpeg.exe'),
     path.join(localAppData, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'),
-  ];
+    findInWingetPackages('ffmpeg.exe', 'ffmpeg|gyan'),
+    path.join(programFiles, 'ffmpeg', 'bin', 'ffmpeg.exe'),
+    path.join(programFilesX86, 'ffmpeg', 'bin', 'ffmpeg.exe'),
+  ]) || 'ffmpeg';
+}
 
-  return firstExisting(candidates) || 'ffmpeg';
+function resolveAdbPath(scrcpyPath = config.scrcpyPath) {
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const besideScrcpy = (scrcpyPath && scrcpyPath.includes(path.sep))
+    ? path.join(path.dirname(scrcpyPath), process.platform === 'win32' ? 'adb.exe' : 'adb')
+    : null;
+
+  return firstExisting([
+    besideScrcpy,
+    which('adb'),
+    which('adb.exe'),
+    path.join(localAppData, 'Microsoft', 'WinGet', 'Links', 'adb.exe'),
+    findInWingetPackages('adb.exe', 'scrcpy|android'),
+  ]) || 'adb';
 }
 
 function resolveDefaultRecordDir() {
@@ -88,8 +121,194 @@ function resolveDefaultRecordDir() {
   }
 }
 
+function resolveObsPath() {
+  if (process.env.OBS_PATH && fs.existsSync(process.env.OBS_PATH)) {
+    return process.env.OBS_PATH;
+  }
+
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const localAppData = process.env.LOCALAPPDATA || '';
+
+  return firstExisting([
+    which('obs64'),
+    which('obs64.exe'),
+    path.join(programFiles, 'obs-studio', 'bin', '64bit', 'obs64.exe'),
+    path.join(programFilesX86, 'obs-studio', 'bin', '64bit', 'obs64.exe'),
+    path.join(localAppData, 'Programs', 'obs-studio', 'bin', '64bit', 'obs64.exe'),
+    findInWingetPackages('obs64.exe', 'obs'),
+  ]);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isObsProcessRunning() {
+  try {
+    const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq obs64.exe', '/FO', 'CSV', '/NH'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    return /obs64\.exe/i.test(out);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Garante WebSocket ligado (uma vez) para o ClevenRec conectar sem intervenção. */
+function getObsWebsocketConfigPath() {
+  const appData = process.env.APPDATA || '';
+  if (!appData) return null;
+  return path.join(appData, 'obs-studio', 'plugin_config', 'obs-websocket', 'config.json');
+}
+
+function readObsWebsocketConfig() {
+  const cfgPath = getObsWebsocketConfigPath();
+  if (!cfgPath || !fs.existsSync(cfgPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  } catch (_) {
+    return {};
+  }
+}
+
+function syncObsPasswordFromConfig() {
+  const current = readObsWebsocketConfig();
+  if (typeof current.server_port === 'number') {
+    config.obsPort = current.server_port;
+  }
+  if (current.auth_required && current.server_password) {
+    config.obsPassword = String(current.server_password);
+  } else if (!config.obsPassword) {
+    config.obsPassword = '';
+  }
+}
+
+function ensureObsWebsocketConfig() {
+  const cfgPath = getObsWebsocketConfigPath();
+  if (!cfgPath) return;
+
+  const dir = path.dirname(cfgPath);
+  const current = readObsWebsocketConfig();
+
+  const next = {
+    ...current,
+    server_enabled: true,
+    server_port: Number(current.server_port) || 4455,
+  };
+
+  // Só força senha vazia se ainda não houver senha configurada
+  if (next.server_password == null) next.server_password = '';
+  if (typeof next.auth_required !== 'boolean') {
+    next.auth_required = Boolean(next.server_password);
+  }
+
+  const changed = JSON.stringify(current) !== JSON.stringify(next);
+  if (!changed && fs.existsSync(cfgPath)) {
+    syncObsPasswordFromConfig();
+    return;
+  }
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(cfgPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    syncObsPasswordFromConfig();
+  } catch (err) {
+    console.warn('Não foi possível ajustar config do OBS WebSocket:', err.message);
+  }
+}
+
+async function tryConnectObs() {
+  try {
+    await obs.connect(`ws://${config.obsHost}:${config.obsPort}`, config.obsPassword || undefined);
+    return true;
+  } catch (_) {
+    try {
+      await obs.call('GetVersion');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
+function launchObsInBackground() {
+  const obsPath = resolveObsPath();
+  if (!obsPath) {
+    return {
+      success: false,
+      message:
+        'OBS Studio não encontrado.\n\nInstale o OBS ou defina OBS_PATH com o caminho do obs64.exe.',
+    };
+  }
+
+  ensureObsWebsocketConfig();
+
+  try {
+    const child = spawn(
+      obsPath,
+      ['--minimize-to-tray', '--disable-shutdown-check'],
+      {
+        cwd: path.dirname(obsPath),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      }
+    );
+    child.unref();
+    return { success: true, obsPath };
+  } catch (err) {
+    return {
+      success: false,
+      message: `Não foi possível iniciar o OBS: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Conecta ao OBS; se não estiver aberto, sobe em segundo plano (bandeja)
+ * e espera o WebSocket ficar pronto.
+ */
+async function ensureObsReady({ timeoutMs = 45000 } = {}) {
+  syncObsPasswordFromConfig();
+  if (await tryConnectObs()) {
+    return { success: true, launched: false };
+  }
+
+  const alreadyRunning = isObsProcessRunning();
+  if (!alreadyRunning) {
+    mainWindow?.webContents.send('status-text', 'Abrindo OBS em segundo plano…');
+    const launched = launchObsInBackground();
+    if (!launched.success) return launched;
+  } else {
+    // OBS aberto mas WS ainda não — tenta habilitar config para próximo boot
+    ensureObsWebsocketConfig();
+    mainWindow?.webContents.send('status-text', 'Conectando ao OBS…');
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await sleep(900);
+    syncObsPasswordFromConfig();
+    if (await tryConnectObs()) {
+      return { success: true, launched: !alreadyRunning };
+    }
+  }
+
+  return {
+    success: false,
+    message:
+      'OBS não respondeu a tempo.\n\n' +
+      'Se for a 1ª vez: abra o OBS → Tools → WebSocket Server Settings → Enable → OK, ' +
+      'feche o OBS e tente de novo. O ClevenRec passa a abri-lo sozinho.',
+  };
+}
+
 const config = {
   scrcpyPath: 'scrcpy',
+  adbPath: 'adb',
+  obsPath: '',
   recordDir: '',
   recordVideoPath: '',
   obsHost: 'localhost',
@@ -243,13 +462,48 @@ function binaryLooksAvailable(binPath) {
   return Boolean(which(binPath) || which(`${binPath}.exe`));
 }
 
+function ensureRuntimePaths() {
+  config.scrcpyPath = resolveScrcpyPath();
+  config.ffmpegPath = resolveFfmpegPath();
+  config.adbPath = resolveAdbPath(config.scrcpyPath);
+  config.obsPath = resolveObsPath() || '';
+  if (!config.recordDir) {
+    config.recordDir = resolveDefaultRecordDir();
+  }
+  try {
+    fs.mkdirSync(config.recordDir, { recursive: true });
+  } catch (_) {
+    // ignore
+  }
+  if (!config.recordVideoPath) {
+    config.recordVideoPath = path.join(config.recordDir, 'screenvid.mkv');
+  }
+  return {
+    scrcpyPath: config.scrcpyPath,
+    ffmpegPath: config.ffmpegPath,
+    adbPath: config.adbPath,
+    obsPath: config.obsPath,
+    recordDir: config.recordDir,
+  };
+}
+
 function validateRuntimeBinaries({ needFfmpeg = false } = {}) {
+  ensureRuntimePaths();
+
   if (!binaryLooksAvailable(config.scrcpyPath)) {
     return {
       success: false,
       message:
         'scrcpy não encontrado.\n\nInstale via winget (winget install Genymobile.scrcpy) ' +
         'ou defina a variável de ambiente SCRCPY_PATH com o caminho do scrcpy.exe.',
+    };
+  }
+  if (!binaryLooksAvailable(config.adbPath)) {
+    return {
+      success: false,
+      message:
+        'adb não encontrado.\n\nEle costuma vir junto do scrcpy. Reinstale o scrcpy ' +
+        'ou coloque adb.exe no PATH.',
     };
   }
   if (needFfmpeg && !binaryLooksAvailable(config.ffmpegPath)) {
@@ -264,23 +518,25 @@ function validateRuntimeBinaries({ needFfmpeg = false } = {}) {
 }
 
 function initRuntimePaths() {
-  config.scrcpyPath = resolveScrcpyPath();
-  config.ffmpegPath = resolveFfmpegPath();
-  config.recordDir = resolveDefaultRecordDir();
-  try {
-    fs.mkdirSync(config.recordDir, { recursive: true });
-  } catch (_) {
-    // ignore
-  }
-  config.recordVideoPath = path.join(config.recordDir, 'screenvid.mkv');
+  ensureRuntimePaths();
 }
 
+/** Alias estável — nunca remover; usado por USB/Wi‑Fi e gravação */
 function getAdbPath() {
-  if (config.scrcpyPath && config.scrcpyPath.includes(path.sep)) {
-    const beside = path.join(path.dirname(config.scrcpyPath), process.platform === 'win32' ? 'adb.exe' : 'adb');
-    if (fs.existsSync(beside)) return beside;
+  ensureRuntimePaths();
+  return config.adbPath;
+}
+
+async function safeIpc(handler, fallbackMessage) {
+  try {
+    return await handler();
+  } catch (err) {
+    console.error(fallbackMessage, err);
+    return {
+      success: false,
+      message: err?.message || fallbackMessage,
+    };
   }
-  return which('adb') || which('adb.exe') || 'adb';
 }
 
 async function detectDeviceWifiIp(adbPath, serial) {
@@ -409,6 +665,8 @@ async function activateConnection(connection, wifiAddress = '') {
 function getStatusPayload() {
   return {
     isRecording,
+    mode: sessionMode,
+    useObsAudio: isRecording ? sessionUseObs : config.useObsAudio,
     videoPath: config.recordVideoPath,
     recordDir: config.recordDir,
     settings: getSettingsSnapshot(),
@@ -428,8 +686,20 @@ app.whenReady().then(async () => {
     remoteInfo = await startRemoteServer({
       getStatus: getStatusPayload,
       saveSettings: (settings) => ({ success: true, settings: applySettings(settings) }),
-      activateConnection: (body = {}) => activateConnection(body.connection || config.connection, body.wifiAddress),
-      start: (options) => startSession(options || {}),
+      activateConnection: (body = {}) => safeIpc(
+        () => {
+          ensureRuntimePaths();
+          return activateConnection(body.connection || config.connection, body.wifiAddress);
+        },
+        'Falha ao ativar conexão'
+      ),
+      start: (options) => safeIpc(
+        () => {
+          ensureRuntimePaths();
+          return startSession(options || {});
+        },
+        'Falha ao iniciar sessão'
+      ),
       stop: () => stopEverything(),
     });
     // não guardar o objeto server (não é serializável no IPC)
@@ -440,7 +710,9 @@ app.whenReady().then(async () => {
     };
     console.log('Remote mobile UI:', remoteInfo.primaryUrl);
     console.log('scrcpy:', config.scrcpyPath);
+    console.log('adb:', config.adbPath);
     console.log('ffmpeg:', config.ffmpegPath);
+    console.log('obs:', config.obsPath || '(não encontrado)');
     console.log('recordDir:', config.recordDir);
   } catch (err) {
     console.error('Falha ao iniciar servidor remoto:', err.message);
@@ -463,13 +735,19 @@ ipcMain.handle('save-settings', (_event, settings) => {
 });
 
 ipcMain.handle('activate-connection', async (_event, payload = {}) => {
-  const connection = payload.connection || config.connection;
-  const wifiAddress = payload.wifiAddress != null ? payload.wifiAddress : config.wifiAddress;
-  return activateConnection(connection, wifiAddress);
+  return safeIpc(async () => {
+    const connection = payload.connection || config.connection;
+    const wifiAddress = payload.wifiAddress != null ? payload.wifiAddress : config.wifiAddress;
+    ensureRuntimePaths();
+    return activateConnection(connection, wifiAddress);
+  }, 'Falha ao ativar conexão');
 });
 
 ipcMain.handle('start-recording', async (_event, options = {}) => {
-  return startSession(options);
+  return safeIpc(async () => {
+    ensureRuntimePaths();
+    return startSession(options);
+  }, 'Falha ao iniciar sessão');
 });
 
 async function startSession(options = {}) {
@@ -510,12 +788,11 @@ async function startSession(options = {}) {
       };
     }
 
-    // 2. OBS (áudio) — só no modo gravar com áudio OBS
+    // 2. OBS (áudio) — sobe em segundo plano se necessário
     if (sessionUseObs) {
-      try {
-        await obs.connect(`ws://${config.obsHost}:${config.obsPort}`, config.obsPassword);
-      } catch (e) {
-        // já conectado ou falha — StartRecord valida
+      const obsReady = await ensureObsReady({ timeoutMs: 45000 });
+      if (!obsReady.success) {
+        return obsReady;
       }
 
       try {
@@ -524,7 +801,9 @@ async function startSession(options = {}) {
       } catch (e) {
         return {
           success: false,
-          message: `Erro no OBS: ${e.message}\n\nVerifique se o WebSocket está ativo em OBS → Tools → WebSocket Server Settings`
+          message:
+            `Erro ao iniciar gravação no OBS: ${e.message}\n\n` +
+            'Confirme que há uma cena/fonte de áudio ativa no OBS.',
         };
       }
     } else {
@@ -595,6 +874,7 @@ async function startSession(options = {}) {
     isRecording = true;
     const payload = {
       mode: sessionMode,
+      useObsAudio: sessionUseObs,
       videoPath: config.recordVideoPath,
     };
     mainWindow?.webContents.send('recording-started', payload);

@@ -144,6 +144,14 @@
       min-height: 16px;
     }
 
+    .mode-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin-top: -4px;
+    }
+
     .conn-status.ok { color: var(--accent); }
     .conn-status.error { color: #ff8d8d; }
     .conn-status.busy { color: var(--warn); }
@@ -585,6 +593,65 @@
       line-height: 1.45;
       margin-bottom: 10px;
     }
+
+    .card-hint {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin: -4px 0 12px;
+    }
+
+    .remote-details {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg-elev);
+      overflow: hidden;
+    }
+
+    .remote-details > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      user-select: none;
+    }
+
+    .remote-details > summary::-webkit-details-marker { display: none; }
+
+    .remote-details > summary::after {
+      content: '+';
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1;
+    }
+
+    .remote-details[open] > summary::after { content: '−'; }
+
+    .remote-details .remote-body {
+      padding: 0 16px 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+
+    .output-grid {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 520px) {
+      .output-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -592,7 +659,7 @@
     <header>
       <div class="brand">
         <div class="brand-name">Cleven<span>Rec</span></div>
-        <div class="brand-sub">scrcpy + OBS · painel de captura</div>
+        <div class="brand-sub">espelho · gravação · sync opcional</div>
       </div>
       <div class="status-pill" id="statusPill">
         <span class="dot" id="statusDot"></span>
@@ -605,6 +672,7 @@
       <button class="mode-btn" id="modeCapture" data-mode="capture" type="button" aria-selected="false">Capturar</button>
       <button class="mode-btn active" id="modeRecord" data-mode="record" type="button" aria-selected="true">Gravar</button>
     </div>
+    <div class="mode-hint" id="modeHint">Gravar salva um arquivo no PC.</div>
 
     <div class="section-label">Conexão</div>
     <div class="mode-switch" role="tablist" aria-label="Conexão">
@@ -615,7 +683,7 @@
 
     <div class="panel">
       <div class="card wifi-only hidden" id="wifiCard">
-        <div class="card-title">Conectar por Wi‑Fi</div>
+        <div class="card-title">Wi‑Fi do celular</div>
         <div class="field">
           <label for="wifiAddress">IP do celular</label>
           <div class="input-shell" id="wifiShell">
@@ -646,8 +714,43 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-title">Qualidade de vídeo</div>
+      <div class="card record-only" id="audioCard">
+        <div class="card-title">Áudio da gravação</div>
+        <div class="field">
+          <label id="audioLabel">Fonte</label>
+          <div class="mode-switch" role="radiogroup" aria-labelledby="audioLabel" id="audioSwitch">
+            <button class="mode-btn" type="button" id="audioOff" data-audio="off" aria-checked="false">Só vídeo</button>
+            <button class="mode-btn active" type="button" id="audioOn" data-audio="on" aria-checked="true">Áudio via OBS</button>
+          </div>
+          <div class="options-hint" id="audioHint">Se o OBS estiver fechado, o ClevenRec abre em segundo plano e sincroniza o áudio ao parar.</div>
+        </div>
+        <input type="checkbox" id="useObsAudio" checked hidden>
+      </div>
+
+      <div class="card record-only" id="outputCard">
+        <div class="card-title">Arquivo de saída</div>
+        <div class="output-grid">
+          <div class="field" id="formatField">
+            <label for="format">Formato</label>
+            <select id="format">
+              <option value="mkv" selected>MKV</option>
+              <option value="mp4">MP4</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="recordDir">Pasta</label>
+            <div class="path-row" style="margin:0">
+              <input type="text" id="recordDir" readonly value="" placeholder="Downloads\screencopy">
+              <button class="btn-ghost" id="btnFolder" type="button">Alterar</button>
+            </div>
+          </div>
+        </div>
+        <div class="file-note" id="filePath">Ao parar: gera o arquivo no PC</div>
+      </div>
+
+      <div class="card" id="qualityCard">
+        <div class="card-title" id="qualityTitle">Qualidade do vídeo</div>
+        <div class="card-hint" id="qualityHint">Define bitrate, FPS e resolução do scrcpy.</div>
         <div class="grid-2">
           <div class="field">
             <label for="bitrate">Bitrate</label>
@@ -668,7 +771,7 @@
               <option value="60">60</option>
             </select>
           </div>
-          <div class="field">
+          <div class="field" style="grid-column: 1 / -1">
             <label for="maxSize">Resolução máx.</label>
             <select id="maxSize">
               <option value="0" selected>Nativa</option>
@@ -678,21 +781,13 @@
               <option value="1920">1920 (long side)</option>
             </select>
           </div>
-          <div class="field record-only" id="formatField">
-            <label for="format">Formato</label>
-            <select id="format">
-              <option value="mkv" selected>MKV</option>
-              <option value="mp4">MP4</option>
-            </select>
-          </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">Comportamento do celular</div>
-
-        <div class="field" style="margin-bottom:12px">
-          <label id="screenLabel">Tela do celular</label>
+        <div class="card-title">Tela do celular</div>
+        <div class="field">
+          <label id="screenLabel">Durante a sessão</label>
           <div class="mode-switch three" role="radiogroup" aria-labelledby="screenLabel">
             <button class="mode-btn active" type="button" id="screenKeep" data-screen="keep" aria-checked="true">Ligada</button>
             <button class="mode-btn" type="button" id="screenDefault" data-screen="default" aria-checked="false">Padrão</button>
@@ -700,46 +795,25 @@
           </div>
           <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
         </div>
-
         <input type="checkbox" id="stayAwake" checked hidden>
         <input type="checkbox" id="turnScreenOff" hidden>
       </div>
 
-      <div class="card record-only" id="audioCard">
-        <div class="card-title">Áudio</div>
-        <div class="field">
-          <label id="audioLabel">Na gravação</label>
-          <div class="mode-switch" role="radiogroup" aria-labelledby="audioLabel" id="audioSwitch">
-            <button class="mode-btn" type="button" id="audioOff" data-audio="off" aria-checked="false">Sem áudio</button>
-            <button class="mode-btn active" type="button" id="audioOn" data-audio="on" aria-checked="true">Com áudio</button>
-          </div>
-          <div class="options-hint" id="audioHint">Com áudio: OBS captura o som e o ClevenRec sincroniza ao parar.</div>
-        </div>
-        <input type="checkbox" id="useObsAudio" checked hidden>
-      </div>
-
-      <div class="card" id="remoteCard">
-        <div class="card-title">Acesso no celular</div>
-        <div class="remote-box">
-          <img id="remoteQr" alt="QR Code" width="112" height="112">
-          <div class="remote-meta">
-            <div class="remote-url" id="remoteUrl">Iniciando servidor…</div>
-            <div class="remote-help">
-              Celular e PC no mesmo Wi‑Fi. Escaneie o QR ou abra o link no navegador do celular.
+      <details class="remote-details" id="remoteCard">
+        <summary>Controle remoto (QR)</summary>
+        <div class="remote-body">
+          <div class="remote-box">
+            <img id="remoteQr" alt="QR Code" width="112" height="112">
+            <div class="remote-meta">
+              <div class="remote-url" id="remoteUrl">Iniciando servidor…</div>
+              <div class="remote-help">
+                Mesmo Wi‑Fi do PC. Escaneie o QR para Start/Stop remoto.
+              </div>
+              <button class="btn-ghost" id="btnCopyRemote" type="button">Copiar link</button>
             </div>
-            <button class="btn-ghost" id="btnCopyRemote" type="button">Copiar link</button>
           </div>
         </div>
-      </div>
-
-      <div class="card record-only" id="outputCard">
-        <div class="card-title">Pasta de saída</div>
-        <div class="path-row">
-          <input type="text" id="recordDir" readonly value="" placeholder="Downloads\screencopy">
-          <button class="btn-ghost" id="btnFolder" type="button">Alterar</button>
-        </div>
-        <div class="file-note" id="filePath">Arquivo gerado ao parar</div>
-      </div>
+      </details>
     </div>
 
     <div class="actions">
@@ -752,7 +826,7 @@
         Parar
       </button>
       <div class="hint" id="hintText">
-        Gravar: escolha Sem áudio ou Com áudio (OBS + sync)
+        Gravar via USB: vídeo + áudio OBS → sync ao parar
       </div>
     </div>
   </div>

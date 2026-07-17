@@ -46,6 +46,10 @@
       color: var(--accent); border-color: rgba(61,222,168,.35);
       background: rgba(61,222,168,.12);
     }
+    .mode-hint {
+      text-align: center; font-size: 12px; color: var(--muted);
+      margin: -6px 0 14px; line-height: 1.35;
+    }
     .card {
       background: var(--card); border: 1px solid var(--line);
       border-radius: 14px; padding: 14px; margin-bottom: 12px;
@@ -103,6 +107,14 @@
     .ip-hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
     .ip-hint.error { color: #ff8d8d; }
     .ip-hint.ok { color: var(--accent); }
+    .wifi-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
+    .btn-connect-wifi {
+      width: 100%; border: 1px solid rgba(61,222,168,.35); border-radius: 10px;
+      background: rgba(61,222,168,.12); color: var(--accent);
+      padding: 12px; font: inherit; font-weight: 700; font-size: 14px;
+    }
+    .btn-connect-wifi:disabled { opacity: .45; }
+    .card-hint { font-size: 12px; color: var(--muted); margin: -2px 0 10px; line-height: 1.35; }
     .msg { font-size: 12px; color: var(--muted); min-height: 32px; margin: 8px 0 14px; word-break: break-word; }
     .btn {
       width: 100%; border: 0; border-radius: 14px; padding: 18px;
@@ -125,6 +137,7 @@
     <button type="button" id="mCapture">Capturar</button>
     <button type="button" id="mRecord" class="active">Gravar</button>
   </div>
+  <div class="mode-hint" id="modeHint">Gravar salva um arquivo. Capturar só espelha.</div>
 
   <div class="modes">
     <button type="button" id="cUsb" class="active">USB</button>
@@ -132,17 +145,31 @@
   </div>
 
   <div class="card" id="wifiCard" style="display:none">
-    <div class="label">IP do celular</div>
+    <div class="label">Wi‑Fi do celular</div>
     <div class="ip-shell" id="wifiShell">
       <input type="text" id="wifiAddress" placeholder="192.168.0.20" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="21" aria-describedby="wifiHint">
       <span class="ip-suffix">:5555</span>
       <button type="button" class="ip-clear" id="btnClearWifi" hidden aria-label="Limpar">×</button>
     </div>
     <div class="ip-hint" id="wifiHint">Só o IP — porta 5555 automática</div>
+    <div class="wifi-actions">
+      <button type="button" class="btn-connect-wifi" id="btnConnectWifi">Conectar Wi‑Fi</button>
+    </div>
+  </div>
+
+  <div class="card" id="audioCard">
+    <div class="label">Áudio da gravação</div>
+    <div class="modes" id="audioBlock" style="margin-bottom:8px">
+      <button type="button" id="audioOff">Só vídeo</button>
+      <button type="button" id="audioOn" class="active">Áudio via OBS</button>
+    </div>
+    <div class="options-hint" id="audioHint">OBS aberto (WebSocket) — sync ao parar.</div>
+    <input type="checkbox" id="useObsAudio" checked hidden>
   </div>
 
   <div class="card">
-    <div class="label">Qualidade</div>
+    <div class="label" id="qualityTitle">Qualidade do arquivo</div>
+    <div class="card-hint" id="qualityHint">Bitrate, FPS e resolução do scrcpy.</div>
     <div class="row">
       <select id="bitrate">
         <option value="2000K">2 Mbps</option>
@@ -165,11 +192,14 @@
       <option value="1440">1440p</option>
       <option value="1920">1920</option>
     </select>
-    <select id="format">
+    <select id="format" class="record-only">
       <option value="mkv" selected>MKV</option>
       <option value="mp4">MP4</option>
     </select>
-    <div class="label" style="margin-top:8px">Tela do celular</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Tela do celular</div>
     <div class="modes" style="margin-bottom:10px">
       <button type="button" id="screenKeep" class="active">Ligada</button>
       <button type="button" id="screenDefault">Padrão</button>
@@ -178,14 +208,6 @@
       <button type="button" id="screenOff">Desligada</button>
     </div>
     <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
-
-    <div class="label" style="margin-top:8px" id="audioLabel">Áudio</div>
-    <div class="modes" id="audioBlock" style="margin-bottom:8px">
-      <button type="button" id="audioOff">Sem áudio</button>
-      <button type="button" id="audioOn" class="active">Com áudio</button>
-    </div>
-    <div class="options-hint" id="audioHint" style="margin-bottom:10px">Com áudio: OBS captura o som e sincroniza ao parar.</div>
-    <input type="checkbox" id="useObsAudio" checked hidden>
     <input type="checkbox" id="stayAwake" checked hidden>
     <input type="checkbox" id="turnScreenOff" hidden>
   </div>
@@ -200,6 +222,7 @@
     let connection = 'usb';
     let screenBehavior = 'keep';
     let active = false;
+    let sessionHadAudio = false;
 
     const SCREEN_HINTS = {
       keep: 'Mantém a tela acesa durante a sessão.',
@@ -207,7 +230,126 @@
       off: 'Apaga a tela; a imagem continua no PC.',
     };
 
+    const AUDIO_HINTS = {
+      off: 'Grava só o vídeo scrcpy. OBS não é necessário.',
+      on: 'OBS sobe sozinho em segundo plano, se precisar. Sync ao parar.',
+    };
+
     const $ = (id) => document.getElementById(id);
+
+    function setControlsLocked(locked) {
+      [
+        'mCapture', 'mRecord', 'cUsb', 'cWifi', 'wifiAddress', 'btnClearWifi', 'btnConnectWifi',
+        'bitrate', 'maxFps', 'maxSize', 'format',
+        'audioOff', 'audioOn', 'screenKeep', 'screenDefault', 'screenOff',
+      ].forEach((id) => {
+        const el = $(id);
+        if (el) el.disabled = locked;
+      });
+    }
+
+    function syncObs() {
+      const withAudio = $('useObsAudio').checked;
+      const isRecord = mode === 'record';
+      $('audioOff').classList.toggle('active', !withAudio);
+      $('audioOn').classList.toggle('active', withAudio);
+      $('audioCard').style.display = isRecord ? 'block' : 'none';
+      $('audioHint').textContent = AUDIO_HINTS[withAudio ? 'on' : 'off'];
+      $('format').style.display = isRecord ? 'block' : 'none';
+      if ($('modeHint')) {
+        $('modeHint').textContent = isRecord
+          ? 'Gravar salva um arquivo no PC.'
+          : 'Capturar só espelha — sem arquivo, sem OBS.';
+      }
+      if ($('qualityTitle')) {
+        $('qualityTitle').textContent = isRecord ? 'Qualidade do arquivo' : 'Qualidade do espelho';
+      }
+      if ($('qualityHint')) {
+        $('qualityHint').textContent = isRecord
+          ? 'Bitrate, FPS e resolução do vídeo gravado.'
+          : 'Afeta só o espelhamento — nada é salvo.';
+      }
+    }
+
+    async function activateWifi() {
+      if (active) return;
+      const parsed = parseWifi($('wifiAddress').value);
+      if (!parsed.empty && !parsed.valid) {
+        updateWifiUI();
+        $('wifiAddress').focus();
+        return;
+      }
+      setConn('wifi');
+      $('msg').textContent = 'Ativando Wi‑Fi…';
+      const r = await api('/api/connection', 'POST', settings());
+      if (r.wifiAddress) $('wifiAddress').value = String(r.wifiAddress).replace(/:5555$/, '');
+      updateWifiUI();
+      $('msg').textContent = r.message || (r.success ? 'Wi‑Fi OK' : 'Falha Wi‑Fi');
+      $('err').textContent = r.success ? '' : (r.message || '');
+    }
+
+    function setAudio(withAudio) {
+      if (active) return;
+      $('useObsAudio').checked = !!withAudio;
+      syncObs();
+    }
+
+    function settings() {
+      const parsed = parseWifi($('wifiAddress').value);
+      return {
+        mode,
+        connection,
+        wifiAddress: parsed.valid && !parsed.empty ? parsed.host : $('wifiAddress').value.trim(),
+        bitrate: $('bitrate').value,
+        maxFps: $('maxFps').value,
+        maxSize: $('maxSize').value,
+        format: $('format').value,
+        useObsAudio: mode === 'record' ? $('useObsAudio').checked : false,
+        stayAwake: screenBehavior === 'keep',
+        turnScreenOff: screenBehavior === 'off',
+      };
+    }
+
+    function setMode(m) {
+      mode = m;
+      $('mCapture').classList.toggle('active', m === 'capture');
+      $('mRecord').classList.toggle('active', m === 'record');
+      $('btnStart').textContent = m === 'record' ? 'Iniciar gravação' : 'Iniciar captura';
+      syncObs();
+    }
+
+    function setConn(c) {
+      connection = c;
+      $('cUsb').classList.toggle('active', c === 'usb');
+      $('cWifi').classList.toggle('active', c === 'wifi');
+      $('wifiCard').style.display = c === 'wifi' ? 'block' : 'none';
+    }
+
+    function setScreen(s) {
+      if (active) return;
+      screenBehavior = s;
+      syncScreen();
+    }
+
+    function setActive(on, info = {}) {
+      active = on;
+      setControlsLocked(on);
+      $('status').classList.toggle('on', on);
+      if (on) {
+        $('statusText').textContent = mode === 'record'
+          ? (sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO')
+          : 'CAPTURANDO';
+      } else {
+        sessionHadAudio = false;
+        $('statusText').textContent = 'Pronto';
+      }
+      $('btnStart').style.display = on ? 'none' : 'block';
+      $('btnStop').classList.toggle('show', on);
+      $('btnStart').disabled = false;
+      $('btnStop').disabled = false;
+      if (info.videoPath) $('msg').textContent = info.videoPath;
+      else if (info.message) $('msg').textContent = info.message;
+    }
 
     function normalizeWifiInput(raw) {
       return String(raw || '').trim().replace(/\s+/g, '').replace(/,/g, '.').replace(/[^0-9.:]/g, '');
@@ -256,75 +398,6 @@
       $('optionsHint').textContent = SCREEN_HINTS[screenBehavior];
     }
 
-    function syncObs() {
-      const withAudio = $('useObsAudio').checked;
-      $('audioOff').classList.toggle('active', !withAudio);
-      $('audioOn').classList.toggle('active', withAudio);
-      $('audioBlock').style.display = mode === 'record' ? 'grid' : 'none';
-      $('audioLabel').style.display = mode === 'record' ? 'block' : 'none';
-      $('audioHint').style.display = mode === 'record' ? 'block' : 'none';
-      $('audioHint').textContent = withAudio
-        ? 'Com áudio: OBS captura o som e sincroniza ao parar.'
-        : 'Só vídeo scrcpy — sem OBS.';
-    }
-
-    function setAudio(withAudio) {
-      if (active) return;
-      $('useObsAudio').checked = !!withAudio;
-      syncObs();
-    }
-
-    function settings() {
-      const parsed = parseWifi($('wifiAddress').value);
-      return {
-        mode,
-        connection,
-        wifiAddress: parsed.valid && !parsed.empty ? parsed.host : $('wifiAddress').value.trim(),
-        bitrate: $('bitrate').value,
-        maxFps: $('maxFps').value,
-        maxSize: $('maxSize').value,
-        format: $('format').value,
-        useObsAudio: mode === 'record' ? $('useObsAudio').checked : false,
-        stayAwake: screenBehavior === 'keep',
-        turnScreenOff: screenBehavior === 'off',
-      };
-    }
-
-    function setMode(m) {
-      mode = m;
-      $('mCapture').classList.toggle('active', m === 'capture');
-      $('mRecord').classList.toggle('active', m === 'record');
-      $('btnStart').textContent = m === 'record' ? 'Iniciar gravação' : 'Iniciar captura';
-      syncObs();
-    }
-
-    function setConn(c) {
-      connection = c;
-      $('cUsb').classList.toggle('active', c === 'usb');
-      $('cWifi').classList.toggle('active', c === 'wifi');
-      $('wifiCard').style.display = c === 'wifi' ? 'block' : 'none';
-    }
-
-    function setScreen(s) {
-      if (active) return;
-      screenBehavior = s;
-      syncScreen();
-    }
-
-    function setActive(on, info = {}) {
-      active = on;
-      $('status').classList.toggle('on', on);
-      $('statusText').textContent = on
-        ? (mode === 'record' ? 'GRAVANDO' : 'CAPTURANDO')
-        : 'Pronto';
-      $('btnStart').style.display = on ? 'none' : 'block';
-      $('btnStop').classList.toggle('show', on);
-      $('btnStart').disabled = false;
-      $('btnStop').disabled = false;
-      if (info.videoPath) $('msg').textContent = info.videoPath;
-      else if (info.message) $('msg').textContent = info.message;
-    }
-
     $('mCapture').onclick = () => { if (!active) setMode('capture'); };
     $('mRecord').onclick = () => { if (!active) setMode('record'); };
     $('screenKeep').onclick = () => setScreen('keep');
@@ -344,20 +417,13 @@
 
     $('cWifi').onclick = async () => {
       if (active) return;
-      const parsed = parseWifi($('wifiAddress').value);
-      if (!parsed.empty && !parsed.valid) {
-        updateWifiUI();
-        $('wifiAddress').focus();
-        return;
-      }
       setConn('wifi');
-      $('msg').textContent = 'Ativando Wi‑Fi…';
-      const r = await api('/api/connection', 'POST', settings());
-      if (r.wifiAddress) $('wifiAddress').value = String(r.wifiAddress).replace(/:5555$/, '');
-      updateWifiUI();
-      $('msg').textContent = r.message || (r.success ? 'Wi‑Fi OK' : 'Falha Wi‑Fi');
-      $('err').textContent = r.success ? '' : (r.message || '');
+      $('msg').textContent = 'Informe o IP e toque em Conectar.';
     };
+
+    if ($('btnConnectWifi')) {
+      $('btnConnectWifi').onclick = () => activateWifi();
+    }
 
     $('wifiAddress').addEventListener('input', () => {
       const el = $('wifiAddress');
@@ -373,7 +439,7 @@
     $('wifiAddress').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        $('cWifi').click();
+        activateWifi();
       }
     });
 
@@ -408,6 +474,10 @@
           syncObs();
         }
         updateWifiUI();
+        if (s.isRecording) {
+          sessionHadAudio = !!s.useObsAudio;
+          if (s.mode) mode = s.mode;
+        }
         setActive(!!s.isRecording, {
           videoPath: s.videoPath,
           message: s.isRecording ? 'Em execução no PC' : 'Conectado ao PC',
@@ -422,16 +492,20 @@
       $('err').textContent = '';
       $('btnStart').disabled = true;
       $('btnStart').textContent = 'Iniciando…';
+      const payload = settings();
+      sessionHadAudio = payload.mode === 'record' && !!payload.useObsAudio;
       try {
-        await api('/api/settings', 'POST', settings());
-        const r = await api('/api/start', 'POST', settings());
+        await api('/api/settings', 'POST', payload);
+        const r = await api('/api/start', 'POST', payload);
         if (r.success) setActive(true, r);
         else {
+          sessionHadAudio = false;
           $('err').textContent = r.message || 'Falha ao iniciar';
           setActive(false);
           setMode(mode);
         }
       } catch (e) {
+        sessionHadAudio = false;
         $('err').textContent = e.message;
         setActive(false);
         setMode(mode);
@@ -440,7 +514,8 @@
 
     $('btnStop').onclick = async () => {
       $('btnStop').disabled = true;
-      $('btnStop').textContent = 'Parando…';
+      $('btnStop').textContent = sessionHadAudio ? 'Sincronizando…' : 'Parando…';
+      if (sessionHadAudio) $('statusText').textContent = 'SINCRONIZANDO';
       try {
         const r = await api('/api/stop', 'POST', {});
         setActive(false, r);
