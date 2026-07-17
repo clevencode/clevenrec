@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
+const { startRemoteServer } = require('./remote-server');
 
 let mainWindow;
 let scrcpyProcess = null;
@@ -9,6 +10,9 @@ let isRecording = false;
 let stoppingIntentionally = false;
 let obsStartTime = null;
 let scrcpyStartTime = null;
+let sessionMode = 'record'; // 'capture' | 'record'
+let sessionUseObs = true;
+let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
 
 const DEFAULT_RECORD_DIR = 'C:\\Users\\Clevy\\Downloads\\screencopy';
 
@@ -20,34 +24,261 @@ const config = {
   obsPort: 4455,
   obsPassword: '',
   ffmpegPath: process.env.FFMPEG_PATH || 'C:\\Users\\Clevy\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  // defaults do painel
+  mode: 'record',
+  connection: 'usb', // 'usb' | 'wifi'
+  wifiAddress: '',
+  bitrate: '6000K',
+  maxFps: '30',
+  format: 'mkv',
+  maxSize: '0',
+  useObsAudio: true,
+  stayAwake: true,
+  turnScreenOff: false,
 };
 
 const obs = new OBSWebSocket();
 
-function buildRecordPath(dir) {
+function buildRecordPath(dir, format = config.format) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  return path.join(dir, `screenvid-${stamp}.mkv`);
+  const ext = format === 'mp4' ? 'mp4' : 'mkv';
+  return path.join(dir, `screenvid-${stamp}.${ext}`);
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 480,
-    height: 620,
-    resizable: false,
+    width: 560,
+    height: 820,
+    minWidth: 520,
+    minHeight: 720,
+    resizable: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
     autoHideMenuBar: true,
-    title: 'Scrcpy + OBS Recorder',
+    title: 'ClevenRec',
+    backgroundColor: '#0c0e12',
     icon: path.join(__dirname, 'public/icon.png')
   });
 
   mainWindow.loadFile('index.html');
 }
 
-app.whenReady().then(createWindow);
+function getSettingsSnapshot() {
+  return {
+    mode: config.mode,
+    connection: config.connection,
+    wifiAddress: config.wifiAddress,
+    bitrate: config.bitrate,
+    maxFps: config.maxFps,
+    format: config.format,
+    maxSize: config.maxSize,
+    useObsAudio: config.useObsAudio,
+    stayAwake: config.stayAwake,
+    turnScreenOff: config.turnScreenOff,
+  };
+}
+
+function applySettings(settings = {}) {
+  Object.assign(config, {
+    mode: settings.mode ?? config.mode,
+    connection: settings.connection ?? config.connection,
+    wifiAddress: settings.wifiAddress != null ? String(settings.wifiAddress).trim() : config.wifiAddress,
+    bitrate: settings.bitrate ?? config.bitrate,
+    maxFps: String(settings.maxFps ?? config.maxFps),
+    format: settings.format ?? config.format,
+    maxSize: String(settings.maxSize ?? config.maxSize),
+    useObsAudio: settings.useObsAudio ?? config.useObsAudio,
+    stayAwake: settings.stayAwake ?? config.stayAwake,
+    turnScreenOff: settings.turnScreenOff ?? config.turnScreenOff,
+  });
+  return getSettingsSnapshot();
+}
+
+function runAdb(adbPath, args) {
+  return new Promise((resolve) => {
+    exec(`"${adbPath}" ${args}`, { timeout: 15000 }, (err, stdout, stderr) => {
+      resolve({
+        ok: !err,
+        stdout: (stdout || '').toString(),
+        stderr: (stderr || '').toString(),
+        error: err,
+      });
+    });
+  });
+}
+
+function parseAdbDevices(stdout) {
+  return stdout.split('\n')
+    .slice(1)
+    .map((l) => l.trim())
+    .filter((l) => l && /\tdevice$/.test(l))
+    .map((l) => {
+      const serial = l.split(/\s+/)[0];
+      return { serial, isWifi: serial.includes(':') };
+    });
+}
+
+function getAdbPath() {
+  return path.join(path.dirname(config.scrcpyPath), 'adb.exe');
+}
+
+async function detectDeviceWifiIp(adbPath, serial) {
+  const prefix = serial ? `-s "${serial}" ` : '';
+  const scripts = [
+    `${prefix}shell "ip -f inet addr show wlan0"`,
+    `${prefix}shell "ip -f inet addr show wlan1"`,
+    `${prefix}shell getprop dhcp.wlan0.ipaddress`,
+    `${prefix}shell "ip route | grep wlan"`,
+  ];
+
+  for (const cmd of scripts) {
+    const res = await runAdb(adbPath, cmd);
+    const text = `${res.stdout}\n${res.stderr}`;
+    const match = text.match(/\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/**
+ * USB  → ativa depuração por cabo (adb usb)
+ * Wi‑Fi → ativa ADB TCP (adb tcpip 5555 + adb connect)
+ */
+async function activateConnection(connection, wifiAddress = '') {
+  const adbPath = getAdbPath();
+  const mode = connection === 'wifi' ? 'wifi' : 'usb';
+  config.connection = mode;
+  if (wifiAddress != null && String(wifiAddress).trim()) {
+    config.wifiAddress = String(wifiAddress).trim();
+  }
+
+  if (mode === 'usb') {
+    await runAdb(adbPath, 'usb');
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const listed = await runAdb(adbPath, 'devices');
+    const usbDevices = parseAdbDevices(listed.stdout).filter((d) => !d.isWifi);
+
+    if (usbDevices.length === 0) {
+      return {
+        success: false,
+        connection: 'usb',
+        message: 'Modo USB ativado, mas nenhum aparelho no cabo.\n\nConecte o USB, ative Depuração USB e aceite o aviso no celular.'
+      };
+    }
+
+    return {
+      success: true,
+      connection: 'usb',
+      devices: usbDevices.map((d) => d.serial),
+      message: `Depuração USB ativa · ${usbDevices.length} dispositivo(s)`
+    };
+  }
+
+  // --- Wi‑Fi / ADB TCP ---
+  let listed = await runAdb(adbPath, 'devices');
+  let devices = parseAdbDevices(listed.stdout);
+  let usbDevices = devices.filter((d) => !d.isWifi);
+
+  // Se ainda há USB, liga o daemon em TCP (necessário na 1ª vez)
+  if (usbDevices.length > 0) {
+    const serial = usbDevices[0].serial;
+    const tcpip = await runAdb(adbPath, `-s "${serial}" tcpip 5555`);
+    const tcpOut = `${tcpip.stdout} ${tcpip.stderr}`;
+    if (!/restarting|5555/i.test(tcpOut) && tcpip.error) {
+      return {
+        success: false,
+        connection: 'wifi',
+        message: `Falha ao ativar ADB Wi‑Fi (tcpip 5555).\n\n${tcpOut.trim() || 'Conecte o USB uma vez para autorizar.'}`
+      };
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+
+    if (!config.wifiAddress) {
+      const ip = await detectDeviceWifiIp(adbPath, serial);
+      if (ip) config.wifiAddress = ip;
+    }
+  }
+
+  let targetHost = config.wifiAddress;
+  if (!targetHost) {
+    // já pode existir um device wifi conectado
+    listed = await runAdb(adbPath, 'devices');
+    const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
+    if (wifiDevices.length > 0) {
+      return {
+        success: true,
+        connection: 'wifi',
+        wifiAddress: wifiDevices[0].serial,
+        devices: wifiDevices.map((d) => d.serial),
+        message: `ADB Wi‑Fi já conectado · ${wifiDevices[0].serial}`
+      };
+    }
+    return {
+      success: false,
+      connection: 'wifi',
+      message: 'Informe o IP do celular (ex.: 192.168.0.20).\n\nNa 1ª vez: deixe o USB conectado, o app ativa adb tcpip 5555 e detecta o IP.'
+    };
+  }
+
+  const target = targetHost.includes(':') ? targetHost : `${targetHost}:5555`;
+  const connect = await runAdb(adbPath, `connect ${target}`);
+  const connectOut = `${connect.stdout} ${connect.stderr}`;
+  if (!/connected|already connected/i.test(connectOut)) {
+    return {
+      success: false,
+      connection: 'wifi',
+      wifiAddress: config.wifiAddress,
+      message: `Não conectou em ${target}.\n\n1. USB uma vez + Depuração USB\n2. Mesmo Wi‑Fi do PC\n3. Confirme o IP\n\n${connectOut.trim()}`
+    };
+  }
+
+  listed = await runAdb(adbPath, 'devices');
+  const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
+
+  return {
+    success: true,
+    connection: 'wifi',
+    wifiAddress: config.wifiAddress,
+    devices: wifiDevices.map((d) => d.serial),
+    message: `ADB Wi‑Fi ativo · ${target}`
+  };
+}
+
+function getStatusPayload() {
+  return {
+    isRecording,
+    videoPath: config.recordVideoPath,
+    recordDir: config.recordDir,
+    settings: getSettingsSnapshot(),
+    remote: remoteInfo,
+  };
+}
+
+app.whenReady().then(async () => {
+  createWindow();
+  try {
+    remoteInfo = await startRemoteServer({
+      getStatus: getStatusPayload,
+      saveSettings: (settings) => ({ success: true, settings: applySettings(settings) }),
+      activateConnection: (body = {}) => activateConnection(body.connection || config.connection, body.wifiAddress),
+      start: (options) => startSession(options || {}),
+      stop: () => stopEverything(),
+    });
+    // não guardar o objeto server (não é serializável no IPC)
+    remoteInfo = {
+      port: remoteInfo.port,
+      urls: remoteInfo.urls,
+      primaryUrl: remoteInfo.primaryUrl,
+    };
+    console.log('Remote mobile UI:', remoteInfo.primaryUrl);
+  } catch (err) {
+    console.error('Falha ao iniciar servidor remoto:', err.message);
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -56,65 +287,105 @@ app.on('window-all-closed', () => {
   }
 });
 
-ipcMain.handle('get-status', () => {
-  return { isRecording, videoPath: config.recordVideoPath };
+ipcMain.handle('get-status', () => getStatusPayload());
+
+ipcMain.handle('get-remote-info', () => remoteInfo);
+
+ipcMain.handle('save-settings', (_event, settings) => {
+  return { success: true, settings: applySettings(settings) };
 });
 
-ipcMain.handle('start-recording', async () => {
-  if (isRecording) return { success: false, message: 'Já está gravando!' };
+ipcMain.handle('activate-connection', async (_event, payload = {}) => {
+  const connection = payload.connection || config.connection;
+  const wifiAddress = payload.wifiAddress != null ? payload.wifiAddress : config.wifiAddress;
+  return activateConnection(connection, wifiAddress);
+});
+
+ipcMain.handle('start-recording', async (_event, options = {}) => {
+  return startSession(options);
+});
+
+async function startSession(options = {}) {
+  if (isRecording) return { success: false, message: 'Já está em execução!' };
+
+  applySettings(options);
+
+  sessionMode = config.mode;
+  sessionUseObs = config.mode === 'record' && config.useObsAudio;
 
   try {
     stoppingIntentionally = false;
 
-    // 1. Dispositivo Android
-    const adbPath = path.join(path.dirname(config.scrcpyPath), 'adb.exe');
-    const adbOk = await new Promise((resolve) => {
-      exec(`"${adbPath}" devices`, (err, stdout) => {
-        if (err) return resolve(false);
-        const devices = stdout.split('\n')
-          .slice(1)
-          .map((l) => l.trim())
-          .filter((l) => l && l.endsWith('device'));
-        resolve(devices.length > 0);
-      });
-    });
+    // Ativa depuração USB ou ADB Wi‑Fi conforme o toggle
+    const activated = await activateConnection(config.connection, config.wifiAddress);
+    if (!activated.success) {
+      return activated;
+    }
+    if (activated.wifiAddress) {
+      config.wifiAddress = activated.wifiAddress.replace(/:5555$/, '');
+    }
 
-    if (!adbOk) {
+    const useWifi = config.connection === 'wifi';
+    const adbPath = getAdbPath();
+    const listed = await runAdb(adbPath, 'devices');
+    const devices = parseAdbDevices(listed.stdout);
+    const matching = devices.filter((d) => (useWifi ? d.isWifi : !d.isWifi));
+
+    if (matching.length === 0) {
       return {
         success: false,
-        message: 'Nenhum dispositivo Android encontrado!\n\n1. Conecte o celular via USB\n2. Ative a Depuração USB\n3. Aceite o aviso "Permitir depuração USB?" no celular'
+        message: useWifi
+          ? 'ADB Wi‑Fi ativo, mas nenhum dispositivo TCP encontrado.'
+          : 'Depuração USB ativa, mas nenhum aparelho no cabo.'
       };
     }
 
-    // 2. OBS (áudio)
-    try {
-      await obs.connect(`ws://${config.obsHost}:${config.obsPort}`, config.obsPassword);
-    } catch (e) {
-      // já conectado ou falha — StartRecord valida de verdade
+    // 2. OBS (áudio) — só no modo gravar com áudio OBS
+    if (sessionUseObs) {
+      try {
+        await obs.connect(`ws://${config.obsHost}:${config.obsPort}`, config.obsPassword);
+      } catch (e) {
+        // já conectado ou falha — StartRecord valida
+      }
+
+      try {
+        await obs.call('StartRecord');
+        obsStartTime = Date.now();
+      } catch (e) {
+        return {
+          success: false,
+          message: `Erro no OBS: ${e.message}\n\nVerifique se o WebSocket está ativo em OBS → Tools → WebSocket Server Settings`
+        };
+      }
+    } else {
+      obsStartTime = null;
     }
 
-    try {
-      await obs.call('StartRecord');
-      obsStartTime = Date.now();
-    } catch (e) {
-      return {
-        success: false,
-        message: `Erro no OBS: ${e.message}\n\nVerifique se o WebSocket está ativo em OBS → Tools → WebSocket Server Settings`
-      };
-    }
-
-    // 3. Scrcpy (vídeo)
-    config.recordVideoPath = buildRecordPath(config.recordDir);
+    // 3. Scrcpy
     const scrcpyArgs = [
-      '-d',
-      '--record', config.recordVideoPath,
-      '--video-bit-rate', '6000K',
-      '--max-fps', '30',
+      useWifi ? '-e' : '-d',
       '--no-audio',
     ];
 
+    if (config.stayAwake) scrcpyArgs.push('--stay-awake');
+    if (config.turnScreenOff) scrcpyArgs.push('--turn-screen-off');
+    if (config.maxFps && config.maxFps !== '0') {
+      scrcpyArgs.push('--max-fps', config.maxFps);
+    }
+    if (config.maxSize && config.maxSize !== '0') {
+      scrcpyArgs.push('--max-size', config.maxSize);
+    }
+    scrcpyArgs.push('--video-bit-rate', config.bitrate);
+
+    if (sessionMode === 'record') {
+      config.recordVideoPath = buildRecordPath(config.recordDir, config.format);
+      scrcpyArgs.push('--record', config.recordVideoPath);
+    } else {
+      config.recordVideoPath = null;
+    }
+
     let scrcpyErrorOutput = '';
-    scrcpyStartTime = Date.now(); // fallback se a mensagem não aparecer
+    scrcpyStartTime = Date.now();
     scrcpyProcess = spawn(config.scrcpyPath, scrcpyArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false
@@ -123,7 +394,7 @@ ipcMain.handle('start-recording', async () => {
     const onScrcpyLog = (d) => {
       const text = d.toString();
       scrcpyErrorOutput += text;
-      if (text.includes('Recording started')) {
+      if (text.includes('Recording started') || text.includes('Texture:')) {
         scrcpyStartTime = Date.now();
       }
     };
@@ -132,32 +403,41 @@ ipcMain.handle('start-recording', async () => {
     scrcpyProcess.stderr.on('data', onScrcpyLog);
 
     scrcpyProcess.on('error', (err) => {
-      mainWindow.webContents.send('recording-error', `Scrcpy não encontrado: ${err.message}`);
+      mainWindow?.webContents.send('recording-error', `Scrcpy não encontrado: ${err.message}`);
     });
 
     scrcpyProcess.on('close', (code) => {
-      // Só reporta erro se o scrcpy morreu sozinho (não foi o usuário clicando em Parar)
       if (isRecording && !stoppingIntentionally && code !== 0) {
         const errorLines = scrcpyErrorOutput
           .split('\n')
           .filter((l) => /ERROR/i.test(l))
           .join('\n');
-        mainWindow.webContents.send(
+        mainWindow?.webContents.send(
           'recording-error',
           `Scrcpy falhou (código ${code}):\n${errorLines || scrcpyErrorOutput.trim().slice(-300) || 'erro desconhecido'}`
         );
+        stopEverything();
+      } else if (isRecording && !stoppingIntentionally && code === 0 && sessionMode === 'capture') {
         stopEverything();
       }
     });
 
     isRecording = true;
-    mainWindow.webContents.send('recording-started', { videoPath: config.recordVideoPath });
+    const payload = {
+      mode: sessionMode,
+      videoPath: config.recordVideoPath,
+    };
+    mainWindow?.webContents.send('recording-started', payload);
 
-    return { success: true, message: 'Gravação iniciada!', videoPath: config.recordVideoPath };
+    return {
+      success: true,
+      message: sessionMode === 'record' ? 'Gravação iniciada!' : 'Captura iniciada!',
+      ...payload
+    };
   } catch (error) {
     return { success: false, message: error.message };
   }
-});
+}
 
 ipcMain.handle('stop-recording', async () => {
   return await stopEverything();
@@ -176,28 +456,29 @@ function waitForClose(proc, timeoutMs = 8000) {
 
 async function stopEverything() {
   if (!isRecording && !scrcpyProcess) {
-    return { success: true, message: 'Nada estava gravando.' };
+    return { success: true, message: 'Nada estava em execução.' };
   }
 
   stoppingIntentionally = true;
+  const wasRecord = sessionMode === 'record';
+  const usedObs = sessionUseObs;
 
-  // Parar OBS e capturar o caminho do arquivo de áudio gravado
   let obsAudioPath = null;
-  try {
-    const stopResp = await obs.call('StopRecord');
-    obsAudioPath = stopResp?.outputPath || null;
-  } catch (e) {
-    // pode já estar parado
+  if (usedObs) {
+    try {
+      const stopResp = await obs.call('StopRecord');
+      obsAudioPath = stopResp?.outputPath || null;
+    } catch (e) {
+      // pode já estar parado
+    }
   }
 
-  // Encerrar scrcpy de forma suave (finaliza o mkv) e só forçar se necessário
   if (scrcpyProcess) {
     const proc = scrcpyProcess;
     scrcpyProcess = null;
 
     try {
       if (process.platform === 'win32') {
-        // sem /F: pede para fechar e o scrcpy finaliza o arquivo
         exec(`taskkill /pid ${proc.pid} /T`);
       } else {
         proc.kill('SIGINT');
@@ -208,7 +489,6 @@ async function stopEverything() {
 
     await waitForClose(proc, 5000);
 
-    // se ainda estiver vivo, força
     if (proc.exitCode === null) {
       try {
         if (process.platform === 'win32') {
@@ -226,23 +506,25 @@ async function stopEverything() {
   isRecording = false;
   mainWindow?.webContents.send('recording-stopped');
 
-  // Pequena pausa para o disco gravar o final do mkv
+  if (!wasRecord) {
+    return { success: true, message: 'Captura encerrada.', videoPath: null };
+  }
+
   await new Promise((r) => setTimeout(r, 500));
 
-  // Mesclar vídeo (scrcpy) + áudio (OBS) em um arquivo sincronizado
-  if (obsAudioPath) {
-    const syncedPath = config.recordVideoPath.replace(/\.mkv$/, '-sync.mkv');
+  if (obsAudioPath && config.recordVideoPath) {
+    const syncedPath = config.recordVideoPath.replace(/\.(mkv|mp4)$/i, '-sync.$1');
     const merge = await mergeVideoAudio(config.recordVideoPath, obsAudioPath, syncedPath);
     if (merge.success) {
       return {
         success: true,
-        message: 'Gravação parada e arquivo sincronizado gerado!',
+        message: 'Arquivo sincronizado gerado!',
         videoPath: syncedPath
       };
     }
     return {
       success: true,
-      message: `Gravação parada, mas a mesclagem falhou: ${merge.message}\nVídeo e áudio foram salvos separadamente.`,
+      message: `Gravação salva, mas a mesclagem falhou: ${merge.message}`,
       videoPath: config.recordVideoPath
     };
   }
@@ -254,8 +536,6 @@ async function stopEverything() {
   };
 }
 
-// Junta o vídeo do scrcpy com o áudio do OBS, compensando a diferença
-// de tempo entre o início das duas gravações
 function mergeVideoAudio(videoPath, audioPath, outputPath) {
   return new Promise((resolve) => {
     const fs = require('fs');
@@ -266,7 +546,6 @@ function mergeVideoAudio(videoPath, audioPath, outputPath) {
       return resolve({ success: false, message: `Áudio do OBS não encontrado: ${audioPath}` });
     }
 
-    // o scrcpy começa a gravar depois do OBS: corta o início do áudio
     const offsetSec = (obsStartTime && scrcpyStartTime && scrcpyStartTime > obsStartTime)
       ? (scrcpyStartTime - obsStartTime) / 1000
       : 0;
@@ -305,8 +584,7 @@ ipcMain.handle('choose-folder', async () => {
   });
   if (!result.canceled) {
     config.recordDir = result.filePaths[0];
-    config.recordVideoPath = buildRecordPath(config.recordDir);
-    return config.recordVideoPath;
+    return { dir: config.recordDir, preview: buildRecordPath(config.recordDir) };
   }
   return null;
 });

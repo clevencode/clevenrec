@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0c0e12">
+  <title>ClevenRec Mobile</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0c0e12;
+      --card: #141820;
+      --line: rgba(255,255,255,0.1);
+      --text: #eef1f6;
+      --muted: #8b93a7;
+      --accent: #3ddea8;
+      --danger: #ff5c5c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, rgba(61,222,168,.1), transparent 55%), var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      padding: 20px 18px calc(24px + env(safe-area-inset-bottom));
+    }
+    h1 { font-size: 26px; letter-spacing: -0.04em; }
+    h1 span { color: var(--accent); }
+    .sub { color: var(--muted); font-size: 13px; margin: 4px 0 18px; }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--card);
+      font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 16px;
+    }
+    .status.on { color: var(--danger); border-color: rgba(255,92,92,.4); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+    .status.on .dot { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .modes button {
+      border: 1px solid var(--line); background: var(--card); color: var(--muted);
+      padding: 14px; border-radius: 12px; font: inherit; font-weight: 600; font-size: 14px;
+    }
+    .modes button.active {
+      color: var(--accent); border-color: rgba(61,222,168,.35);
+      background: rgba(61,222,168,.12);
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 14px; padding: 14px; margin-bottom: 12px;
+    }
+    .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+    select {
+      width: 100%; appearance: none; background: #1a2030; color: var(--text);
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px; font: inherit; margin-bottom: 10px;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .check { display: flex; gap: 10px; align-items: center; font-size: 14px; margin: 8px 0; }
+    .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+    .ip-shell {
+      display: flex; align-items: center; gap: 0;
+      background: #1a2030; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    }
+    .ip-shell:focus-within { border-color: rgba(61,222,168,.5); }
+    .ip-shell.is-invalid { border-color: rgba(255,92,92,.55); }
+    .ip-shell.is-valid { border-color: rgba(61,222,168,.45); }
+    .ip-shell input {
+      flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text);
+      padding: 12px; font: inherit; font-family: ui-monospace, monospace; font-size: 15px; outline: none;
+    }
+    .ip-suffix { color: var(--muted); font-size: 12px; padding-right: 8px; font-family: ui-monospace, monospace; }
+    .ip-clear {
+      border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted);
+      padding: 0 14px; font-size: 18px; line-height: 1;
+    }
+    .ip-hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .ip-hint.error { color: #ff8d8d; }
+    .ip-hint.ok { color: var(--accent); }
+    .msg { font-size: 12px; color: var(--muted); min-height: 32px; margin: 8px 0 14px; word-break: break-word; }
+    .btn {
+      width: 100%; border: 0; border-radius: 14px; padding: 18px;
+      font: inherit; font-size: 16px; font-weight: 700; margin-bottom: 10px;
+    }
+    .btn-go { background: var(--accent); color: #062319; }
+    .btn-stop { background: var(--danger); color: #fff; display: none; }
+    .btn-stop.show { display: block; }
+    .btn:disabled { opacity: .5; }
+    .err { color: #ff8d8d; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Cleven<span>Rec</span></h1>
+  <div class="sub">Controle remoto · mesmo Wi‑Fi do PC</div>
+
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Conectando…</span></div>
+
+  <div class="modes">
+    <button type="button" id="mCapture">Capturar</button>
+    <button type="button" id="mRecord" class="active">Gravar</button>
+  </div>
+
+  <div class="modes">
+    <button type="button" id="cUsb" class="active">USB</button>
+    <button type="button" id="cWifi">Wi‑Fi</button>
+  </div>
+
+  <div class="card" id="wifiCard" style="display:none">
+    <div class="label">IP do celular</div>
+    <div class="ip-shell" id="wifiShell">
+      <input type="text" id="wifiAddress" placeholder="192.168.0.20" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="21" aria-describedby="wifiHint">
+      <span class="ip-suffix">:5555</span>
+      <button type="button" class="ip-clear" id="btnClearWifi" hidden aria-label="Limpar">×</button>
+    </div>
+    <div class="ip-hint" id="wifiHint">Só o IP — porta 5555 automática</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Qualidade</div>
+    <div class="row">
+      <select id="bitrate">
+        <option value="2000K">2 Mbps</option>
+        <option value="4000K">4 Mbps</option>
+        <option value="6000K" selected>6 Mbps</option>
+        <option value="8000K">8 Mbps</option>
+        <option value="12000K">12 Mbps</option>
+      </select>
+      <select id="maxFps">
+        <option value="15">15 FPS</option>
+        <option value="24">24 FPS</option>
+        <option value="30" selected>30 FPS</option>
+        <option value="60">60 FPS</option>
+      </select>
+    </div>
+    <select id="maxSize">
+      <option value="0" selected>Resolução nativa</option>
+      <option value="720">720p</option>
+      <option value="1080">1080p</option>
+      <option value="1440">1440p</option>
+      <option value="1920">1920</option>
+    </select>
+    <select id="format">
+      <option value="mkv" selected>MKV</option>
+      <option value="mp4">MP4</option>
+    </select>
+    <label class="check"><input type="checkbox" id="useObsAudio" checked> Áudio OBS + sync</label>
+    <label class="check"><input type="checkbox" id="stayAwake" checked> Stay awake</label>
+  </div>
+
+  <div class="msg" id="msg">Pronto</div>
+  <button class="btn btn-go" id="btnStart" type="button">Iniciar</button>
+  <button class="btn btn-stop" id="btnStop" type="button">Parar</button>
+  <div class="err" id="err"></div>
+
+  <script>
+    let mode = 'record';
+    let connection = 'usb';
+    let active = false;
+
+    const $ = (id) => document.getElementById(id);
+
+    function normalizeWifiInput(raw) {
+      return String(raw || '').trim().replace(/\s+/g, '').replace(/,/g, '.').replace(/[^0-9.:]/g, '');
+    }
+
+    function parseWifi(raw) {
+      const value = normalizeWifiInput(raw);
+      if (!value) return { empty: true, valid: true, host: '' };
+      const host = value.split(':')[0];
+      const parts = host.split('.');
+      const ok = parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+      return { empty: false, valid: ok, host };
+    }
+
+    function updateWifiUI() {
+      const el = $('wifiAddress');
+      const shell = $('wifiShell');
+      const hint = $('wifiHint');
+      const clear = $('btnClearWifi');
+      const parsed = parseWifi(el.value);
+      clear.hidden = !el.value.trim();
+      shell.classList.remove('is-invalid', 'is-valid');
+      hint.classList.remove('error', 'ok');
+      if (parsed.empty) {
+        hint.textContent = 'Só o IP — porta 5555 automática';
+        return;
+      }
+      if (!parsed.valid) {
+        shell.classList.add('is-invalid');
+        hint.classList.add('error');
+        hint.textContent = 'IP inválido (ex.: 192.168.0.20)';
+        return;
+      }
+      shell.classList.add('is-valid');
+      hint.classList.add('ok');
+      hint.textContent = `OK · ${parsed.host}:5555`;
+    }
+
+    function settings() {
+      const parsed = parseWifi($('wifiAddress').value);
+      return {
+        mode,
+        connection,
+        wifiAddress: parsed.valid && !parsed.empty ? parsed.host : $('wifiAddress').value.trim(),
+        bitrate: $('bitrate').value,
+        maxFps: $('maxFps').value,
+        maxSize: $('maxSize').value,
+        format: $('format').value,
+        useObsAudio: $('useObsAudio').checked,
+        stayAwake: $('stayAwake').checked,
+        turnScreenOff: false,
+      };
+    }
+
+    function setMode(m) {
+      mode = m;
+      $('mCapture').classList.toggle('active', m === 'capture');
+      $('mRecord').classList.toggle('active', m === 'record');
+      $('btnStart').textContent = m === 'record' ? 'Iniciar gravação' : 'Iniciar captura';
+    }
+
+    function setConn(c) {
+      connection = c;
+      $('cUsb').classList.toggle('active', c === 'usb');
+      $('cWifi').classList.toggle('active', c === 'wifi');
+      $('wifiCard').style.display = c === 'wifi' ? 'block' : 'none';
+    }
+
+    function setActive(on, info = {}) {
+      active = on;
+      $('status').classList.toggle('on', on);
+      $('statusText').textContent = on
+        ? (mode === 'record' ? 'GRAVANDO' : 'CAPTURANDO')
+        : 'Pronto';
+      $('btnStart').style.display = on ? 'none' : 'block';
+      $('btnStop').classList.toggle('show', on);
+      $('btnStart').disabled = false;
+      $('btnStop').disabled = false;
+      if (info.videoPath) $('msg').textContent = info.videoPath;
+      else if (info.message) $('msg').textContent = info.message;
+    }
+
+    $('mCapture').onclick = () => { if (!active) setMode('capture'); };
+    $('mRecord').onclick = () => { if (!active) setMode('record'); };
+    $('cUsb').onclick = async () => {
+      if (active) return;
+      setConn('usb');
+      $('msg').textContent = 'Ativando USB…';
+      const r = await api('/api/connection', 'POST', settings());
+      $('msg').textContent = r.message || (r.success ? 'USB OK' : 'Falha USB');
+      if (!r.success) $('err').textContent = r.message;
+      else $('err').textContent = '';
+    };
+    $('cWifi').onclick = async () => {
+      if (active) return;
+      const parsed = parseWifi($('wifiAddress').value);
+      if (!parsed.empty && !parsed.valid) {
+        updateWifiUI();
+        $('wifiAddress').focus();
+        return;
+      }
+      setConn('wifi');
+      $('msg').textContent = 'Ativando ADB Wi‑Fi…';
+      const r = await api('/api/connection', 'POST', settings());
+      if (r.wifiAddress) $('wifiAddress').value = String(r.wifiAddress).replace(/:5555$/, '');
+      updateWifiUI();
+      $('msg').textContent = r.message || (r.success ? 'Wi‑Fi OK' : 'Falha Wi‑Fi');
+      if (!r.success) $('err').textContent = r.message;
+      else $('err').textContent = '';
+    };
+
+    $('wifiAddress').addEventListener('input', () => {
+      const el = $('wifiAddress');
+      const cleaned = normalizeWifiInput(el.value);
+      if (cleaned !== el.value) el.value = cleaned;
+      updateWifiUI();
+    });
+    $('btnClearWifi').onclick = () => {
+      $('wifiAddress').value = '';
+      updateWifiUI();
+      $('wifiAddress').focus();
+    };
+    $('wifiAddress').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        $('cWifi').click();
+      }
+    });
+
+    async function api(path, method = 'GET', body) {
+      const res = await fetch(path, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return res.json();
+    }
+
+    async function refresh() {
+      try {
+        const s = await api('/api/status');
+        $('err').textContent = '';
+        if (s.settings) {
+          mode = s.settings.mode || mode;
+          connection = s.settings.connection || connection;
+          setMode(mode);
+          setConn(connection);
+          if (s.settings.wifiAddress) $('wifiAddress').value = s.settings.wifiAddress;
+          if (s.settings.bitrate) $('bitrate').value = s.settings.bitrate;
+          if (s.settings.maxFps) $('maxFps').value = s.settings.maxFps;
+          if (s.settings.maxSize) $('maxSize').value = s.settings.maxSize;
+          if (s.settings.format) $('format').value = s.settings.format;
+          $('useObsAudio').checked = s.settings.useObsAudio !== false;
+          $('stayAwake').checked = s.settings.stayAwake !== false;
+        }
+        updateWifiUI();
+        setActive(!!s.isRecording, { videoPath: s.videoPath, message: s.isRecording ? 'Em execução no PC' : 'Conectado ao PC' });
+      } catch (e) {
+        $('err').textContent = 'Sem conexão com o PC. Verifique o Wi‑Fi.';
+        $('statusText').textContent = 'Offline';
+      }
+    }
+
+    $('btnStart').onclick = async () => {
+      $('err').textContent = '';
+      $('btnStart').disabled = true;
+      $('btnStart').textContent = 'Iniciando…';
+      try {
+        await api('/api/settings', 'POST', settings());
+        const r = await api('/api/start', 'POST', settings());
+        if (r.success) setActive(true, r);
+        else {
+          $('err').textContent = r.message || 'Falha ao iniciar';
+          setActive(false);
+          setMode(mode);
+        }
+      } catch (e) {
+        $('err').textContent = e.message;
+        setActive(false);
+        setMode(mode);
+      }
+    };
+
+    $('btnStop').onclick = async () => {
+      $('btnStop').disabled = true;
+      $('btnStop').textContent = 'Parando…';
+      try {
+        const r = await api('/api/stop', 'POST', {});
+        setActive(false, r);
+        setMode(mode);
+      } catch (e) {
+        $('err').textContent = e.message;
+      }
+      $('btnStop').textContent = 'Parar';
+      $('btnStop').disabled = false;
+    };
+
+    setMode('record');
+    setConn('usb');
+    refresh();
+    setInterval(refresh, 2500);
+  </script>
+</body>
+</html>

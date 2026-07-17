@@ -3,218 +3,614 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Scrcpy + OBS Recorder</title>
+  <title>ClevenRec</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    :root {
+      --bg: #0c0e12;
+      --bg-elev: #141820;
+      --bg-soft: #1a2030;
+      --line: rgba(255,255,255,0.08);
+      --text: #e8eaef;
+      --muted: #8b93a7;
+      --accent: #3ddea8;
+      --accent-dim: rgba(61, 222, 168, 0.15);
+      --danger: #ff5c5c;
+      --danger-dim: rgba(255, 92, 92, 0.18);
+      --warn: #f0b429;
+      --radius: 12px;
     }
 
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: linear-gradient(135deg, #0f0f13 0%, #1a1a24 100%);
-      color: #e4e4e7;
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(61, 222, 168, 0.08), transparent),
+        var(--bg);
+      color: var(--text);
       height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
       overflow: hidden;
       user-select: none;
     }
 
-    .container {
-      width: 100%;
-      max-width: 420px;
-      padding: 32px;
-      text-align: center;
+    input, textarea, [contenteditable] {
+      user-select: text;
+      -webkit-user-select: text;
     }
 
-    .logo {
-      font-size: 28px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-      margin-bottom: 8px;
-      background: linear-gradient(90deg, #a78bfa, #60a5fa);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .app {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 22px 24px 20px;
+      gap: 16px;
     }
 
-    .subtitle {
-      font-size: 14px;
-      color: #a1a1aa;
-      margin-bottom: 40px;
-    }
-
-    .status-card {
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 16px;
-      padding: 24px;
-      margin-bottom: 32px;
-    }
-
-    .status-indicator {
+    header {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 12px;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .brand-name {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .brand-name span { color: var(--accent); }
+
+    .brand-sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .status-pill.active {
+      color: var(--danger);
+      border-color: rgba(255, 92, 92, 0.35);
+      background: var(--danger-dim);
     }
 
     .dot {
-      width: 12px;
-      height: 12px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
-      background: #71717a;
-      transition: all 0.3s ease;
+      background: #4a5163;
     }
 
-    .dot.recording {
-      background: #ef4444;
-      box-shadow: 0 0 12px #ef4444;
-      animation: pulse 1.5s infinite;
+    .status-pill.active .dot {
+      background: var(--danger);
+      box-shadow: 0 0 10px var(--danger);
+      animation: pulse 1.4s infinite;
     }
 
     @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.7; transform: scale(1.15); }
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
     }
 
-    .status-text {
-      font-size: 16px;
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 5px;
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+
+    .mode-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      padding: 12px 10px;
+      border-radius: 10px;
+      font: inherit;
       font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: 0.15s ease;
     }
 
-    .file-path {
-      font-size: 12px;
-      color: #71717a;
-      word-break: break-all;
-      margin-top: 8px;
-      min-height: 32px;
+    .mode-btn:hover { color: var(--text); }
+
+    .mode-btn.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px rgba(61, 222, 168, 0.25);
     }
 
-    .buttons {
+    .panel {
+      flex: 1;
+      overflow: auto;
       display: flex;
       flex-direction: column;
       gap: 14px;
+      padding-right: 2px;
     }
 
-    button {
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.12);
+      border-radius: 99px;
+    }
+
+    .card {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+
+    .field label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .field-hint.error { color: #ff8d8d; }
+    .field-hint.ok { color: var(--accent); }
+
+    .input-shell {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .input-shell:focus-within {
+      border-color: rgba(61, 222, 168, 0.5);
+      box-shadow: 0 0 0 3px rgba(61, 222, 168, 0.12);
+    }
+
+    .input-shell.is-invalid {
+      border-color: rgba(255, 92, 92, 0.55);
+      box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.12);
+    }
+
+    .input-shell.is-valid {
+      border-color: rgba(61, 222, 168, 0.45);
+    }
+
+    .input-shell input {
+      flex: 1;
+      min-width: 0;
+      border: none !important;
+      box-shadow: none !important;
+      background: transparent;
+      border-radius: 0;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+      padding: 11px 12px;
+    }
+
+    .input-suffix {
+      display: flex;
+      align-items: center;
+      padding: 0 10px 0 0;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .input-actions {
+      display: flex;
+      align-items: stretch;
+      border-left: 1px solid var(--line);
+    }
+
+    .input-actions button {
       border: none;
-      border-radius: 14px;
-      padding: 18px 24px;
-      font-size: 16px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0 12px;
+      font: inherit;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s ease;
+    }
+
+    .input-actions button:hover:not(:disabled) {
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .input-actions button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .input-actions .btn-connect {
+      color: var(--accent);
+      border-left: 1px solid var(--line);
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      appearance: none;
+      background: var(--bg-soft);
+      border: 1px solid var(--line);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: rgba(61, 222, 168, 0.45);
+    }
+
+    .input-shell input:focus {
+      border: none;
+      outline: none;
+    }
+
+    select:disabled, input:disabled, .mode-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .checks {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .path-row {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .path-row input {
+      flex: 1;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .btn-ghost {
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0 14px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn-ghost:hover { border-color: rgba(255,255,255,0.18); }
+
+    .file-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      word-break: break-all;
+      min-height: 14px;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .btn-primary, .btn-stop {
+      width: 100%;
+      border: none;
+      border-radius: 12px;
+      padding: 15px 18px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
-      font-family: inherit;
+      transition: 0.15s ease;
     }
 
-    .btn-start {
-      background: linear-gradient(135deg, #22c55e, #16a34a);
-      color: white;
-      box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+    .btn-primary {
+      background: var(--accent);
+      color: #062319;
     }
 
-    .btn-start:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 25px rgba(34, 197, 94, 0.4);
-    }
-
-    .btn-start:disabled {
-      background: #3f3f46;
-      color: #71717a;
-      box-shadow: none;
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+    .btn-primary:disabled {
+      background: #2a3142;
+      color: #6b7388;
       cursor: not-allowed;
     }
 
     .btn-stop {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white;
-      box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
       display: none;
+      background: var(--danger);
+      color: white;
     }
 
-    .btn-stop.visible {
+    .btn-stop.visible { display: flex; }
+    .btn-stop:hover:not(:disabled) { filter: brightness(1.05); }
+
+    .hint {
+      font-size: 11px;
+      color: #636b7e;
+      text-align: center;
+      line-height: 1.45;
+    }
+
+    .record-only.hidden { display: none; }
+    .wifi-only.hidden { display: none; }
+
+    input[type="text"]:not([readonly]) {
+      color: var(--text);
+    }
+
+    .remote-box {
       display: flex;
+      gap: 14px;
+      align-items: center;
     }
 
-    .btn-stop:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 25px rgba(239, 68, 68, 0.4);
+    .remote-box img {
+      width: 112px;
+      height: 112px;
+      border-radius: 10px;
+      background: #fff;
+      flex-shrink: 0;
     }
 
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.06);
-      color: #d4d4d8;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      font-size: 14px;
-      padding: 12px;
-    }
+    .remote-meta { flex: 1; min-width: 0; }
 
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .info {
-      margin-top: 32px;
+    .remote-url {
+      font-family: 'IBM Plex Mono', monospace;
       font-size: 12px;
-      color: #52525b;
-      line-height: 1.5;
+      color: var(--accent);
+      word-break: break-all;
+      margin-bottom: 8px;
     }
 
-    .info strong {
-      color: #a1a1aa;
+    .remote-help {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.45;
+      margin-bottom: 10px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">Scrcpy + OBS</div>
-    <div class="subtitle">Gravação simultânea de vídeo e áudio</div>
-
-    <div class="status-card">
-      <div class="status-indicator">
-        <div class="dot" id="statusDot"></div>
-        <div class="status-text" id="statusText">Pronto para gravar</div>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="brand-name">Cleven<span>Rec</span></div>
+        <div class="brand-sub">scrcpy + OBS · painel de captura</div>
       </div>
-      <div class="file-path" id="filePath">Nenhum arquivo ainda</div>
+      <div class="status-pill" id="statusPill">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Pronto</span>
+      </div>
+    </header>
+
+    <div class="mode-switch" role="tablist">
+      <button class="mode-btn" id="modeCapture" data-mode="capture" type="button">Capturar</button>
+      <button class="mode-btn active" id="modeRecord" data-mode="record" type="button">Gravar</button>
     </div>
 
-    <div class="buttons">
-      <button class="btn-start" id="btnStart">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="12" cy="12" r="10"/>
-          <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
-        </svg>
-        INICIAR GRAVAÇÃO
-      </button>
-
-      <button class="btn-stop" id="btnStop">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="6" y="6" width="12" height="12" rx="1"/>
-        </svg>
-        PARAR GRAVAÇÃO
-      </button>
-
-      <button class="btn-secondary" id="btnFolder">
-        Escolher pasta de gravação
-      </button>
+    <div class="mode-switch" role="tablist" aria-label="Conexão">
+      <button class="mode-btn active" id="connUsb" data-conn="usb" type="button">USB</button>
+      <button class="mode-btn" id="connWifi" data-conn="wifi" type="button">Wi‑Fi</button>
+    </div>
+    <div class="file-note" id="connStatus" style="margin-top:-8px;margin-bottom:4px;text-align:center">
+      USB: ativa depuração por cabo (adb usb) · Wi‑Fi: ativa ADB TCP
     </div>
 
-    <div class="info">
-      <strong>Como funciona:</strong><br>
-      • Vídeo: scrcpy (sem áudio)<br>
-      • Áudio: OBS Studio (via WebSocket)<br>
-      • Ambos iniciam e param juntos
+    <div class="panel">
+      <div class="card wifi-only hidden" id="wifiCard">
+        <div class="card-title">ADB Wi‑Fi</div>
+        <div class="field">
+          <label for="wifiAddress">Endereço IP do celular</label>
+          <div class="input-shell" id="wifiShell">
+            <input
+              type="text"
+              id="wifiAddress"
+              name="wifiAddress"
+              placeholder="192.168.0.20"
+              inputmode="decimal"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              enterkeyhint="go"
+              maxlength="21"
+              aria-describedby="wifiHint"
+              aria-invalid="false"
+            >
+            <span class="input-suffix" id="wifiPortHint">:5555</span>
+            <div class="input-actions">
+              <button type="button" id="btnClearWifi" title="Limpar" aria-label="Limpar IP" hidden>×</button>
+              <button type="button" class="btn-connect" id="btnConnectWifi" title="Conectar ADB Wi‑Fi">Conectar</button>
+            </div>
+          </div>
+          <div class="field-hint" id="wifiHint">
+            Digite só o IP. A porta 5555 é adicionada automaticamente.
+          </div>
+        </div>
+        <div class="file-note" style="margin-top:10px">
+          1ª vez: deixe o USB ligado — o app ativa tcpip e pode detectar o IP sozinho.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Qualidade de vídeo</div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="bitrate">Bitrate</label>
+            <select id="bitrate">
+              <option value="2000K">2 Mbps — leve</option>
+              <option value="4000K">4 Mbps — padrão</option>
+              <option value="6000K" selected>6 Mbps — recomendado</option>
+              <option value="8000K">8 Mbps — alto</option>
+              <option value="12000K">12 Mbps — máximo</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="maxFps">FPS máx.</label>
+            <select id="maxFps">
+              <option value="15">15</option>
+              <option value="24">24</option>
+              <option value="30" selected>30</option>
+              <option value="60">60</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="maxSize">Resolução máx.</label>
+            <select id="maxSize">
+              <option value="0" selected>Nativa</option>
+              <option value="720">720p</option>
+              <option value="1080">1080p</option>
+              <option value="1440">1440p</option>
+              <option value="1920">1920 (long side)</option>
+            </select>
+          </div>
+          <div class="field record-only" id="formatField">
+            <label for="format">Formato</label>
+            <select id="format">
+              <option value="mkv" selected>MKV</option>
+              <option value="mp4">MP4</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Opções</div>
+        <div class="checks">
+          <label class="check record-only" id="obsCheckWrap">
+            <input type="checkbox" id="useObsAudio" checked>
+            Áudio via OBS + sincronizar ao parar
+          </label>
+          <label class="check">
+            <input type="checkbox" id="stayAwake" checked>
+            Manter tela ligada (--stay-awake)
+          </label>
+          <label class="check">
+            <input type="checkbox" id="turnScreenOff">
+            Desligar tela do celular (--turn-screen-off)
+          </label>
+        </div>
+      </div>
+
+      <div class="card" id="remoteCard">
+        <div class="card-title">Acesso no celular</div>
+        <div class="remote-box">
+          <img id="remoteQr" alt="QR Code" width="112" height="112">
+          <div class="remote-meta">
+            <div class="remote-url" id="remoteUrl">Iniciando servidor…</div>
+            <div class="remote-help">
+              Celular e PC no mesmo Wi‑Fi. Escaneie o QR ou abra o link no navegador do celular.
+            </div>
+            <button class="btn-ghost" id="btnCopyRemote" type="button">Copiar link</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card record-only" id="outputCard">
+        <div class="card-title">Pasta de saída</div>
+        <div class="path-row">
+          <input type="text" id="recordDir" readonly value="C:\Users\Clevy\Downloads\screencopy">
+          <button class="btn-ghost" id="btnFolder" type="button">Alterar</button>
+        </div>
+        <div class="file-note" id="filePath">Arquivo gerado ao parar</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-primary" id="btnStart" type="button">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <span id="btnStartLabel">Iniciar gravação</span>
+      </button>
+      <button class="btn-stop" id="btnStop" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Parar
+      </button>
+      <div class="hint" id="hintText">
+        Gravar: vídeo scrcpy + áudio OBS → arquivo sincronizado (.mkv)
+      </div>
     </div>
   </div>
 
