@@ -1,10 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const fs = require('fs');
+const { spawn, exec, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
 const { startRemoteServer } = require('./remote-server');
 
 let mainWindow;
+let splashWindow = null;
 let scrcpyProcess = null;
 let isRecording = false;
 let stoppingIntentionally = false;
@@ -14,16 +16,78 @@ let sessionMode = 'record'; // 'capture' | 'record'
 let sessionUseObs = true;
 let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
 
-const DEFAULT_RECORD_DIR = 'C:\\Users\\Clevy\\Downloads\\screencopy';
+function which(cmd) {
+  try {
+    const bin = process.platform === 'win32' ? 'where.exe' : 'which';
+    const out = execFileSync(bin, [cmd], { encoding: 'utf8' });
+    return out.split(/\r?\n/).map((s) => s.trim()).find((s) => s && fs.existsSync(s)) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function firstExisting(candidates) {
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveScrcpyPath() {
+  if (process.env.SCRCPY_PATH) {
+    const envPath = process.env.SCRCPY_PATH;
+    if (fs.existsSync(envPath)) return envPath;
+  }
+  const fromPath = which('scrcpy') || which('scrcpy.exe');
+  if (fromPath) return fromPath;
+
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const wingetRoot = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+  if (fs.existsSync(wingetRoot)) {
+    try {
+      const matches = fs.readdirSync(wingetRoot)
+        .filter((name) => /scrcpy/i.test(name))
+        .flatMap((pkg) => {
+          const pkgDir = path.join(wingetRoot, pkg);
+          try {
+            return fs.readdirSync(pkgDir).map((child) => path.join(pkgDir, child, 'scrcpy.exe'));
+          } catch (_) {
+            return [];
+          }
+        });
+      const found = firstExisting(matches);
+      if (found) return found;
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  return 'scrcpy';
+}
+
+function resolveFfmpegPath() {
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
+  }
+  return which('ffmpeg') || which('ffmpeg.exe') || 'ffmpeg';
+}
+
+function resolveDefaultRecordDir() {
+  try {
+    return path.join(app.getPath('downloads'), 'screencopy');
+  } catch (_) {
+    return path.join(process.env.USERPROFILE || process.cwd(), 'Downloads', 'screencopy');
+  }
+}
 
 const config = {
-  scrcpyPath: process.env.SCRCPY_PATH || 'C:\\Users\\Clevy\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\\scrcpy-win64-v4.0\\scrcpy.exe',
-  recordDir: DEFAULT_RECORD_DIR,
-  recordVideoPath: path.join(DEFAULT_RECORD_DIR, 'screenvid.mkv'),
+  scrcpyPath: 'scrcpy',
+  recordDir: '',
+  recordVideoPath: '',
   obsHost: 'localhost',
   obsPort: 4455,
   obsPassword: '',
-  ffmpegPath: process.env.FFMPEG_PATH || 'C:\\Users\\Clevy\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.exe',
+  ffmpegPath: 'ffmpeg',
   // defaults do painel
   mode: 'record',
   connection: 'usb', // 'usb' | 'wifi'
@@ -45,6 +109,34 @@ function buildRecordPath(dir, format = config.format) {
   return path.join(dir, `screenvid-${stamp}.${ext}`);
 }
 
+const APP_ICON = path.join(__dirname, 'public', 'icon.png');
+
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 360,
+    height: 420,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    frame: false,
+    transparent: false,
+    alwaysOnTop: true,
+    center: true,
+    show: false,
+    backgroundColor: '#0c0e12',
+    icon: APP_ICON,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  splashWindow.loadFile('splash.html');
+  splashWindow.once('ready-to-show', () => {
+    splashWindow.show();
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 560,
@@ -52,6 +144,7 @@ function createWindow() {
     minWidth: 520,
     minHeight: 720,
     resizable: true,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -60,10 +153,23 @@ function createWindow() {
     autoHideMenuBar: true,
     title: 'ClevenRec',
     backgroundColor: '#0c0e12',
-    icon: path.join(__dirname, 'public/icon.png')
+    icon: APP_ICON
   });
 
   mainWindow.loadFile('index.html');
+
+  mainWindow.once('ready-to-show', () => {
+    // splash mínimo ~1.2s para leitura da marca
+    const reveal = () => {
+      if (splashWindow && !splashWindow.isDestroyed()) {
+        splashWindow.close();
+        splashWindow = null;
+      }
+      mainWindow.show();
+      mainWindow.focus();
+    };
+    setTimeout(reveal, 1200);
+  });
 }
 
 function getSettingsSnapshot() {
@@ -121,8 +227,44 @@ function parseAdbDevices(stdout) {
     });
 }
 
-function getAdbPath() {
-  return path.join(path.dirname(config.scrcpyPath), 'adb.exe');
+function binaryLooksAvailable(binPath) {
+  if (!binPath) return false;
+  if (binPath.includes(path.sep) || binPath.includes('/') || binPath.includes('\\')) {
+    return fs.existsSync(binPath);
+  }
+  return Boolean(which(binPath) || which(`${binPath}.exe`));
+}
+
+function validateRuntimeBinaries({ needFfmpeg = false } = {}) {
+  if (!binaryLooksAvailable(config.scrcpyPath)) {
+    return {
+      success: false,
+      message:
+        'scrcpy não encontrado.\n\nInstale via winget (winget install Genymobile.scrcpy) ' +
+        'ou defina a variável de ambiente SCRCPY_PATH com o caminho do scrcpy.exe.',
+    };
+  }
+  if (needFfmpeg && !binaryLooksAvailable(config.ffmpegPath)) {
+    return {
+      success: false,
+      message:
+        'ffmpeg não encontrado (necessário para sync vídeo+áudio).\n\n' +
+        'Instale via winget (winget install Gyan.FFmpeg) ou defina FFMPEG_PATH.',
+    };
+  }
+  return { success: true };
+}
+
+function initRuntimePaths() {
+  config.scrcpyPath = resolveScrcpyPath();
+  config.ffmpegPath = resolveFfmpegPath();
+  config.recordDir = resolveDefaultRecordDir();
+  try {
+    fs.mkdirSync(config.recordDir, { recursive: true });
+  } catch (_) {
+    // ignore
+  }
+  config.recordVideoPath = path.join(config.recordDir, 'screenvid.mkv');
 }
 
 async function detectDeviceWifiIp(adbPath, serial) {
@@ -259,6 +401,12 @@ function getStatusPayload() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.cleven.clevenrec');
+  }
+
+  initRuntimePaths();
+  createSplash();
   createWindow();
   try {
     remoteInfo = await startRemoteServer({
@@ -275,6 +423,9 @@ app.whenReady().then(async () => {
       primaryUrl: remoteInfo.primaryUrl,
     };
     console.log('Remote mobile UI:', remoteInfo.primaryUrl);
+    console.log('scrcpy:', config.scrcpyPath);
+    console.log('ffmpeg:', config.ffmpegPath);
+    console.log('recordDir:', config.recordDir);
   } catch (err) {
     console.error('Falha ao iniciar servidor remoto:', err.message);
   }
@@ -315,6 +466,9 @@ async function startSession(options = {}) {
 
   try {
     stoppingIntentionally = false;
+
+    const bins = validateRuntimeBinaries({ needFfmpeg: sessionMode === 'record' && sessionUseObs });
+    if (!bins.success) return bins;
 
     // Ativa depuração USB ou ADB Wi‑Fi conforme o toggle
     const activated = await activateConnection(config.connection, config.wifiAddress);

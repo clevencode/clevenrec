@@ -1,11 +1,13 @@
 {
-  "name": "scrcpy-obs-recorder",
-  "version": "1.0.0",
-  "description": "Painel GUI simples: grava vídeo com Scrcpy + áudio com OBS simultaneamente",
+  "name": "clevenrec",
+  "version": "1.1.0",
+  "description": "ClevenRec - gravacao scrcpy (video) + OBS (audio) com sync",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-builder --win",
+    "build:win": "electron-builder --win nsis portable --x64",
+    "dist": "npm run build:win"
   },
   "author": "Cleven",
   "license": "MIT",
@@ -17,10 +19,53 @@
     "obs-websocket-js": "^5.0.5"
   },
   "build": {
-    "appId": "com.cleven.scrcpyobs",
-    "productName": "ScrcpyOBS Recorder",
+    "appId": "com.cleven.clevenrec",
+    "productName": "ClevenRec",
+    "copyright": "Copyright © Cleven",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "remote-server.js",
+      "index.html",
+      "mobile.html",
+      "splash.html",
+      "public/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
     "win": {
-      "target": "portable"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ClevenRec",
+      "uninstallDisplayName": "ClevenRec"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
     }
   }
 }
