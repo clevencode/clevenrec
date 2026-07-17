@@ -159,11 +159,18 @@
 
   <div class="card" id="audioCard">
     <div class="label">Áudio da gravação</div>
-    <div class="modes" id="audioBlock" style="margin-bottom:8px">
+    <div class="modes" id="audioBlock" style="margin-bottom:8px;grid-template-columns:1fr 1fr 1fr">
       <button type="button" id="audioOff">Só vídeo</button>
-      <button type="button" id="audioOn" class="active">Áudio via OBS</button>
+      <button type="button" id="audioPc" class="active">PC</button>
+      <button type="button" id="audioPhone">Celular</button>
     </div>
-    <div class="options-hint" id="audioHint">OBS aberto (WebSocket) — sync ao parar.</div>
+    <div class="modes" id="pcAudioBlock" style="margin-bottom:8px;grid-template-columns:1fr 1fr 1fr">
+      <button type="button" id="audioPcDesktop" class="active">Interno</button>
+      <button type="button" id="audioPcMic">Microfone</button>
+      <button type="button" id="audioPcBoth">Ambos</button>
+    </div>
+    <div class="options-hint" id="audioHint">Áudio interno do computador via OBS — sync ao parar.</div>
+    <input type="hidden" id="audioSource" value="pc-desktop">
     <input type="checkbox" id="useObsAudio" checked hidden>
   </div>
 
@@ -223,6 +230,7 @@
     let screenBehavior = 'keep';
     let active = false;
     let sessionHadAudio = false;
+    let sessionAudioSource = 'none';
 
     const SCREEN_HINTS = {
       keep: 'Mantém a tela acesa durante a sessão.',
@@ -231,17 +239,36 @@
     };
 
     const AUDIO_HINTS = {
-      off: 'Grava só o vídeo scrcpy. OBS não é necessário.',
-      on: 'OBS sobe sozinho em segundo plano, se precisar. Sync ao parar.',
+      none: 'Sem faixa de áudio — só o vídeo do scrcpy.',
+      'pc-desktop': 'Só áudio interno do PC (Desktop Audio no OBS).',
+      'pc-mic': 'Só microfone do PC (Mic/Aux no OBS).',
+      'pc-both': 'Áudio interno + microfone juntos no OBS.',
+      phone: 'Áudio interno do celular via scrcpy — sem OBS.',
     };
 
     const $ = (id) => document.getElementById(id);
+
+    function isPcAudio(audio) {
+      return audio === 'pc-desktop' || audio === 'pc-mic' || audio === 'pc-both';
+    }
+
+    function isKnownAudioSource(audio) {
+      return audio === 'none' || audio === 'phone' || isPcAudio(audio);
+    }
+
+    function getAudioSource() {
+      const raw = $('audioSource')?.value || 'pc-desktop';
+      if (isKnownAudioSource(raw)) return raw;
+      if (raw === 'pc') return 'pc-desktop';
+      return $('useObsAudio')?.checked ? 'pc-desktop' : 'none';
+    }
 
     function setControlsLocked(locked) {
       [
         'mCapture', 'mRecord', 'cUsb', 'cWifi', 'wifiAddress', 'btnClearWifi', 'btnConnectWifi',
         'bitrate', 'maxFps', 'maxSize', 'format',
-        'audioOff', 'audioOn', 'screenKeep', 'screenDefault', 'screenOff',
+        'audioOff', 'audioPc', 'audioPhone', 'audioPcDesktop', 'audioPcMic', 'audioPcBoth',
+        'screenKeep', 'screenDefault', 'screenOff',
       ].forEach((id) => {
         const el = $(id);
         if (el) el.disabled = locked;
@@ -249,13 +276,21 @@
     }
 
     function syncObs() {
-      const withAudio = $('useObsAudio').checked;
+      const audio = getAudioSource();
       const isRecord = mode === 'record';
-      $('audioOff').classList.toggle('active', !withAudio);
-      $('audioOn').classList.toggle('active', withAudio);
-      $('audioCard').style.display = isRecord ? 'block' : 'none';
-      $('audioHint').textContent = AUDIO_HINTS[withAudio ? 'on' : 'off'];
-      $('format').style.display = isRecord ? 'block' : 'none';
+      const pcSelected = isPcAudio(audio);
+      if ($('audioOff')) $('audioOff').classList.toggle('active', audio === 'none');
+      if ($('audioPc')) $('audioPc').classList.toggle('active', pcSelected);
+      if ($('audioPhone')) $('audioPhone').classList.toggle('active', audio === 'phone');
+      if ($('audioPcDesktop')) $('audioPcDesktop').classList.toggle('active', audio === 'pc-desktop');
+      if ($('audioPcMic')) $('audioPcMic').classList.toggle('active', audio === 'pc-mic');
+      if ($('audioPcBoth')) $('audioPcBoth').classList.toggle('active', audio === 'pc-both');
+      if ($('audioCard')) $('audioCard').style.display = isRecord ? 'block' : 'none';
+      if ($('pcAudioBlock')) $('pcAudioBlock').style.display = (isRecord && pcSelected) ? 'grid' : 'none';
+      if ($('audioSource')) $('audioSource').value = audio;
+      if ($('useObsAudio')) $('useObsAudio').checked = pcSelected;
+      if ($('audioHint')) $('audioHint').textContent = AUDIO_HINTS[audio];
+      if ($('format')) $('format').style.display = isRecord ? 'block' : 'none';
       if ($('modeHint')) {
         $('modeHint').textContent = isRecord
           ? 'Gravar salva um arquivo no PC.'
@@ -288,14 +323,23 @@
       $('err').textContent = r.success ? '' : (r.message || '');
     }
 
-    function setAudio(withAudio) {
+    function setAudio(next) {
       if (active) return;
-      $('useObsAudio').checked = !!withAudio;
+      let audio = next;
+      if (next === 'pc') {
+        const current = getAudioSource();
+        audio = isPcAudio(current) ? current : 'pc-desktop';
+      } else if (!isKnownAudioSource(next)) {
+        audio = 'pc-desktop';
+      }
+      if ($('audioSource')) $('audioSource').value = audio;
+      if ($('useObsAudio')) $('useObsAudio').checked = isPcAudio(audio);
       syncObs();
     }
 
     function settings() {
       const parsed = parseWifi($('wifiAddress').value);
+      const audioSource = mode === 'record' ? getAudioSource() : 'none';
       return {
         mode,
         connection,
@@ -304,7 +348,8 @@
         maxFps: $('maxFps').value,
         maxSize: $('maxSize').value,
         format: $('format').value,
-        useObsAudio: mode === 'record' ? $('useObsAudio').checked : false,
+        audioSource,
+        useObsAudio: isPcAudio(audioSource),
         stayAwake: screenBehavior === 'keep',
         turnScreenOff: screenBehavior === 'off',
       };
@@ -336,11 +381,18 @@
       setControlsLocked(on);
       $('status').classList.toggle('on', on);
       if (on) {
-        $('statusText').textContent = mode === 'record'
-          ? (sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO')
-          : 'CAPTURANDO';
+        if (mode === 'record') {
+          if (sessionAudioSource === 'pc-desktop') $('statusText').textContent = 'GRAVANDO · INTERNO';
+          else if (sessionAudioSource === 'pc-mic') $('statusText').textContent = 'GRAVANDO · MIC';
+          else if (sessionAudioSource === 'pc-both') $('statusText').textContent = 'GRAVANDO · AMBOS';
+          else if (sessionAudioSource === 'phone') $('statusText').textContent = 'GRAVANDO · CELULAR';
+          else $('statusText').textContent = 'GRAVANDO';
+        } else {
+          $('statusText').textContent = 'CAPTURANDO';
+        }
       } else {
         sessionHadAudio = false;
+        sessionAudioSource = 'none';
         $('statusText').textContent = 'Pronto';
       }
       $('btnStart').style.display = on ? 'none' : 'block';
@@ -403,8 +455,12 @@
     $('screenKeep').onclick = () => setScreen('keep');
     $('screenDefault').onclick = () => setScreen('default');
     $('screenOff').onclick = () => setScreen('off');
-    $('audioOff').onclick = () => setAudio(false);
-    $('audioOn').onclick = () => setAudio(true);
+    $('audioOff').onclick = () => setAudio('none');
+    $('audioPc').onclick = () => setAudio('pc');
+    $('audioPhone').onclick = () => setAudio('phone');
+    if ($('audioPcDesktop')) $('audioPcDesktop').onclick = () => setAudio('pc-desktop');
+    if ($('audioPcMic')) $('audioPcMic').onclick = () => setAudio('pc-mic');
+    if ($('audioPcBoth')) $('audioPcBoth').onclick = () => setAudio('pc-both');
 
     $('cUsb').onclick = async () => {
       if (active) return;
@@ -466,7 +522,19 @@
           if (s.settings.maxFps) $('maxFps').value = s.settings.maxFps;
           if (s.settings.maxSize) $('maxSize').value = s.settings.maxSize;
           if (s.settings.format) $('format').value = s.settings.format;
-          $('useObsAudio').checked = s.settings.useObsAudio !== false;
+          const audio = (
+            s.settings.audioSource === 'none'
+            || s.settings.audioSource === 'pc-desktop'
+            || s.settings.audioSource === 'pc-mic'
+            || s.settings.audioSource === 'pc-both'
+            || s.settings.audioSource === 'phone'
+          )
+            ? s.settings.audioSource
+            : (s.settings.audioSource === 'pc'
+              ? 'pc-desktop'
+              : (s.settings.useObsAudio === false ? 'none' : 'pc-desktop'));
+          if ($('audioSource')) $('audioSource').value = audio;
+          $('useObsAudio').checked = isPcAudio(audio);
           if (s.settings.turnScreenOff) screenBehavior = 'off';
           else if (s.settings.stayAwake !== false) screenBehavior = 'keep';
           else screenBehavior = 'default';
@@ -475,7 +543,20 @@
         }
         updateWifiUI();
         if (s.isRecording) {
-          sessionHadAudio = !!s.useObsAudio;
+          if (
+            s.audioSource === 'none'
+            || s.audioSource === 'pc-desktop'
+            || s.audioSource === 'pc-mic'
+            || s.audioSource === 'pc-both'
+            || s.audioSource === 'phone'
+          ) {
+            sessionAudioSource = s.audioSource;
+          } else if (s.audioSource === 'pc') {
+            sessionAudioSource = 'pc-desktop';
+          } else {
+            sessionAudioSource = s.useObsAudio ? 'pc-desktop' : 'none';
+          }
+          sessionHadAudio = isPcAudio(sessionAudioSource);
           if (s.mode) mode = s.mode;
         }
         setActive(!!s.isRecording, {
@@ -493,19 +574,22 @@
       $('btnStart').disabled = true;
       $('btnStart').textContent = 'Iniciando…';
       const payload = settings();
-      sessionHadAudio = payload.mode === 'record' && !!payload.useObsAudio;
+      sessionAudioSource = payload.mode === 'record' ? payload.audioSource : 'none';
+      sessionHadAudio = isPcAudio(sessionAudioSource);
       try {
         await api('/api/settings', 'POST', payload);
         const r = await api('/api/start', 'POST', payload);
         if (r.success) setActive(true, r);
         else {
           sessionHadAudio = false;
+          sessionAudioSource = 'none';
           $('err').textContent = r.message || 'Falha ao iniciar';
           setActive(false);
           setMode(mode);
         }
       } catch (e) {
         sessionHadAudio = false;
+        sessionAudioSource = 'none';
         $('err').textContent = e.message;
         setActive(false);
         setMode(mode);
@@ -514,8 +598,8 @@
 
     $('btnStop').onclick = async () => {
       $('btnStop').disabled = true;
-      $('btnStop').textContent = sessionHadAudio ? 'Sincronizando…' : 'Parando…';
-      if (sessionHadAudio) $('statusText').textContent = 'SINCRONIZANDO';
+      $('btnStop').textContent = isPcAudio(sessionAudioSource) ? 'Sincronizando…' : 'Parando…';
+      if (isPcAudio(sessionAudioSource)) $('statusText').textContent = 'SINCRONIZANDO';
       try {
         const r = await api('/api/stop', 'POST', {});
         setActive(false, r);

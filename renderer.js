@@ -14,10 +14,16 @@ const els = {
   maxSize: document.getElementById('maxSize'),
   format: document.getElementById('format'),
   useObsAudio: document.getElementById('useObsAudio'),
+  audioSource: document.getElementById('audioSource'),
   stayAwake: document.getElementById('stayAwake'),
   turnScreenOff: document.getElementById('turnScreenOff'),
   audioOff: document.getElementById('audioOff'),
-  audioOn: document.getElementById('audioOn'),
+  audioPc: document.getElementById('audioPc'),
+  audioPhone: document.getElementById('audioPhone'),
+  audioPcDesktop: document.getElementById('audioPcDesktop'),
+  audioPcMic: document.getElementById('audioPcMic'),
+  audioPcBoth: document.getElementById('audioPcBoth'),
+  pcAudioField: document.getElementById('pcAudioField'),
   audioHint: document.getElementById('audioHint'),
   modeHint: document.getElementById('modeHint'),
   optionsHint: document.getElementById('optionsHint'),
@@ -47,6 +53,7 @@ let screenBehavior = 'keep'; // keep | default | off
 let isActive = false;
 let isConnecting = false;
 let sessionHadAudio = false;
+let sessionAudioSource = 'none';
 
 const IP_HOST_RE = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 
@@ -57,21 +64,39 @@ const SCREEN_HINTS = {
 };
 
 const AUDIO_HINTS = {
-  off: 'Grava só o vídeo do scrcpy. OBS e ffmpeg não são necessários.',
-  on: 'Se o OBS estiver fechado, o ClevenRec abre em segundo plano e sincroniza o áudio ao parar.',
+  none: 'Sem faixa de áudio — só o vídeo do scrcpy.',
+  'pc-desktop': 'Só áudio interno do computador (Desktop Audio no OBS).',
+  'pc-mic': 'Só microfone do computador (Mic/Aux no OBS).',
+  'pc-both': 'Áudio interno + microfone juntos no OBS — sync ao parar.',
+  phone: 'Áudio interno do celular via scrcpy — sem OBS.',
 };
 
 function connLabel() {
   return connection === 'wifi' ? 'Wi‑Fi' : 'USB';
 }
 
+function isPcAudio(audio) {
+  return audio === 'pc-desktop' || audio === 'pc-mic' || audio === 'pc-both';
+}
+
+function isKnownAudioSource(audio) {
+  return audio === 'none' || audio === 'phone' || isPcAudio(audio);
+}
+
+function getAudioSource() {
+  const raw = els.audioSource?.value || 'pc-desktop';
+  if (isKnownAudioSource(raw)) return raw;
+  if (raw === 'pc') return 'pc-desktop';
+  return els.useObsAudio?.checked ? 'pc-desktop' : 'none';
+}
+
 function withAudioSelected() {
-  return !!els.useObsAudio?.checked;
+  return getAudioSource() !== 'none';
 }
 
 function updateSessionCopy() {
   const isRecord = mode === 'record';
-  const audio = withAudioSelected();
+  const audio = getAudioSource();
 
   if (els.modeHint) {
     els.modeHint.textContent = isRecord
@@ -91,10 +116,16 @@ function updateSessionCopy() {
   if (els.hintText) {
     if (!isRecord) {
       els.hintText.textContent = `Capturar via ${connLabel()}: espelha a tela, sem arquivo.`;
-    } else if (audio) {
-      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + áudio OBS → sync ao parar.`;
+    } else if (audio === 'pc-desktop') {
+      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + áudio interno do PC → sync.`;
+    } else if (audio === 'pc-mic') {
+      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + microfone do PC → sync.`;
+    } else if (audio === 'pc-both') {
+      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + interno e microfone → sync.`;
+    } else if (audio === 'phone') {
+      els.hintText.textContent = `Gravar via ${connLabel()}: vídeo + áudio interno do celular.`;
     } else {
-      els.hintText.textContent = `Gravar via ${connLabel()}: só vídeo scrcpy (sem OBS).`;
+      els.hintText.textContent = `Gravar via ${connLabel()}: só vídeo scrcpy.`;
     }
   }
 
@@ -102,9 +133,17 @@ function updateSessionCopy() {
     const current = els.filePath.textContent || '';
     const isResult = /^(Salvo:|Próximo:)/.test(current);
     if (!isResult) {
-      els.filePath.textContent = audio
-        ? 'Ao parar: salva vídeo e gera arquivo -sync com áudio OBS'
-        : 'Ao parar: salva só o vídeo scrcpy';
+      if (audio === 'pc-desktop') {
+        els.filePath.textContent = 'Ao parar: salva vídeo e gera -sync com áudio interno';
+      } else if (audio === 'pc-mic') {
+        els.filePath.textContent = 'Ao parar: salva vídeo e gera -sync com microfone';
+      } else if (audio === 'pc-both') {
+        els.filePath.textContent = 'Ao parar: salva vídeo e gera -sync com interno + microfone';
+      } else if (audio === 'phone') {
+        els.filePath.textContent = 'Ao parar: salva vídeo com áudio do celular';
+      } else {
+        els.filePath.textContent = 'Ao parar: salva só o vídeo scrcpy';
+      }
     }
   }
 
@@ -234,22 +273,55 @@ function syncScreenUI() {
 }
 
 function syncAudioUI() {
-  if (!els.useObsAudio || !els.audioOff || !els.audioOn) return;
-  const withAudio = withAudioSelected();
-  els.audioOff.classList.toggle('active', !withAudio);
-  els.audioOn.classList.toggle('active', withAudio);
-  els.audioOff.setAttribute('aria-checked', (!withAudio).toString());
-  els.audioOn.setAttribute('aria-checked', withAudio.toString());
-  els.audioOff.disabled = isActive;
-  els.audioOn.disabled = isActive;
-  if (els.audioHint) {
-    els.audioHint.textContent = AUDIO_HINTS[withAudio ? 'on' : 'off'];
+  const audio = getAudioSource();
+  const pcSelected = isPcAudio(audio);
+
+  const topMap = {
+    none: els.audioOff,
+    pc: els.audioPc,
+    phone: els.audioPhone,
+  };
+  Object.entries(topMap).forEach(([key, btn]) => {
+    if (!btn) return;
+    const active = key === 'pc' ? pcSelected : audio === key;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.disabled = isActive;
+  });
+
+  if (els.pcAudioField) {
+    els.pcAudioField.classList.toggle('hidden', !pcSelected || mode !== 'record');
   }
+
+  const pcMap = {
+    'pc-desktop': els.audioPcDesktop,
+    'pc-mic': els.audioPcMic,
+    'pc-both': els.audioPcBoth,
+  };
+  Object.entries(pcMap).forEach(([key, btn]) => {
+    if (!btn) return;
+    const active = audio === key;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.disabled = isActive;
+  });
+
+  if (els.audioSource) els.audioSource.value = audio;
+  if (els.useObsAudio) els.useObsAudio.checked = pcSelected;
+  if (els.audioHint) els.audioHint.textContent = AUDIO_HINTS[audio] || '';
 }
 
-function setAudioMode(withAudio) {
+function setAudioMode(next) {
   if (isActive) return;
-  els.useObsAudio.checked = !!withAudio;
+  let audio = next;
+  if (next === 'pc') {
+    const current = getAudioSource();
+    audio = isPcAudio(current) ? current : 'pc-desktop';
+  } else if (!isKnownAudioSource(next)) {
+    audio = next ? 'pc-desktop' : 'none';
+  }
+  if (els.audioSource) els.audioSource.value = audio;
+  if (els.useObsAudio) els.useObsAudio.checked = isPcAudio(audio);
   syncAudioUI();
   applyModeUI();
   window.api.saveSettings(getSettings());
@@ -257,6 +329,7 @@ function setAudioMode(withAudio) {
 
 function getSettings() {
   applyScreenBehaviorToCheckboxes();
+  const audioSource = mode === 'record' ? getAudioSource() : 'none';
   return {
     mode,
     connection,
@@ -265,7 +338,8 @@ function getSettings() {
     maxFps: els.maxFps.value,
     maxSize: els.maxSize.value,
     format: els.format.value,
-    useObsAudio: mode === 'record' ? els.useObsAudio.checked : false,
+    audioSource,
+    useObsAudio: isPcAudio(audioSource),
     stayAwake: screenBehavior === 'keep',
     turnScreenOff: screenBehavior === 'off',
   };
@@ -323,7 +397,8 @@ function setControlsEnabled(enabled) {
   [
     els.modeCapture, els.modeRecord, els.connUsb, els.connWifi, els.wifiAddress,
     els.btnClearWifi, els.btnConnectWifi, els.bitrate, els.maxFps, els.maxSize, els.format,
-    els.audioOff, els.audioOn, els.btnFolder, els.screenKeep, els.screenDefault, els.screenOff,
+    els.audioOff, els.audioPc, els.audioPhone, els.audioPcDesktop, els.audioPcMic, els.audioPcBoth,
+    els.btnFolder, els.screenKeep, els.screenDefault, els.screenOff,
   ].forEach((el) => {
     if (el) el.disabled = !enabled;
   });
@@ -338,7 +413,11 @@ function setActiveState(active, info = {}) {
   if (active) {
     els.statusPill.classList.add('active');
     if (mode === 'record') {
-      els.statusText.textContent = sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO';
+      if (sessionAudioSource === 'pc-desktop') els.statusText.textContent = 'GRAVANDO · INTERNO';
+      else if (sessionAudioSource === 'pc-mic') els.statusText.textContent = 'GRAVANDO · MIC';
+      else if (sessionAudioSource === 'pc-both') els.statusText.textContent = 'GRAVANDO · AMBOS';
+      else if (sessionAudioSource === 'phone') els.statusText.textContent = 'GRAVANDO · CELULAR';
+      else els.statusText.textContent = 'GRAVANDO';
     } else {
       els.statusText.textContent = 'CAPTURANDO';
     }
@@ -349,13 +428,20 @@ function setActiveState(active, info = {}) {
       els.filePath.textContent = info.videoPath;
     } else if (mode === 'capture') {
       els.filePath.textContent = 'Espelhamento ativo (sem arquivo)';
-    } else if (sessionHadAudio) {
-      els.filePath.textContent = 'Gravando vídeo + áudio OBS…';
+    } else if (sessionAudioSource === 'pc-desktop') {
+      els.filePath.textContent = 'Gravando vídeo + áudio interno do PC…';
+    } else if (sessionAudioSource === 'pc-mic') {
+      els.filePath.textContent = 'Gravando vídeo + microfone do PC…';
+    } else if (sessionAudioSource === 'pc-both') {
+      els.filePath.textContent = 'Gravando vídeo + interno e microfone…';
+    } else if (sessionAudioSource === 'phone') {
+      els.filePath.textContent = 'Gravando vídeo + áudio do celular…';
     } else {
       els.filePath.textContent = 'Gravando só vídeo…';
     }
   } else {
     sessionHadAudio = false;
+    sessionAudioSource = 'none';
     els.statusPill.classList.remove('active');
     els.btnStart.style.display = 'flex';
     els.btnStart.disabled = false;
@@ -497,8 +583,12 @@ if (els.btnConnectWifi) {
   els[id].addEventListener('change', () => window.api.saveSettings(getSettings()));
 });
 
-if (els.audioOff) els.audioOff.addEventListener('click', () => setAudioMode(false));
-if (els.audioOn) els.audioOn.addEventListener('click', () => setAudioMode(true));
+if (els.audioOff) els.audioOff.addEventListener('click', () => setAudioMode('none'));
+if (els.audioPc) els.audioPc.addEventListener('click', () => setAudioMode('pc'));
+if (els.audioPhone) els.audioPhone.addEventListener('click', () => setAudioMode('phone'));
+if (els.audioPcDesktop) els.audioPcDesktop.addEventListener('click', () => setAudioMode('pc-desktop'));
+if (els.audioPcMic) els.audioPcMic.addEventListener('click', () => setAudioMode('pc-mic'));
+if (els.audioPcBoth) els.audioPcBoth.addEventListener('click', () => setAudioMode('pc-both'));
 
 els.btnFolder.addEventListener('click', async () => {
   const result = await window.api.chooseFolder();
@@ -522,13 +612,15 @@ els.btnStart.addEventListener('click', async () => {
   els.btnStartLabel.textContent = 'Iniciando...';
 
   const settings = getSettings();
-  sessionHadAudio = settings.mode === 'record' && !!settings.useObsAudio;
+  sessionAudioSource = settings.mode === 'record' ? settings.audioSource : 'none';
+  sessionHadAudio = isPcAudio(sessionAudioSource);
   const result = await window.api.startRecording(settings);
 
   if (result.success) {
     setActiveState(true, result);
   } else {
     sessionHadAudio = false;
+    sessionAudioSource = 'none';
     alert(result.message);
     els.btnStart.disabled = false;
     applyModeUI();
@@ -537,7 +629,7 @@ els.btnStart.addEventListener('click', async () => {
 
 els.btnStop.addEventListener('click', async () => {
   els.btnStop.disabled = true;
-  const syncing = sessionHadAudio;
+  const syncing = isPcAudio(sessionAudioSource);
   els.btnStop.textContent = syncing ? 'Sincronizando…' : 'Parando…';
   if (syncing) els.statusText.textContent = 'SINCRONIZANDO';
 
@@ -553,9 +645,15 @@ els.btnStop.addEventListener('click', async () => {
   } else {
     alert(result.message);
     if (isActive) {
-      els.statusText.textContent = mode === 'record'
-        ? (sessionHadAudio ? 'GRAVANDO + ÁUDIO' : 'GRAVANDO')
-        : 'CAPTURANDO';
+      if (mode === 'record') {
+        if (sessionAudioSource === 'pc-desktop') els.statusText.textContent = 'GRAVANDO · INTERNO';
+        else if (sessionAudioSource === 'pc-mic') els.statusText.textContent = 'GRAVANDO · MIC';
+        else if (sessionAudioSource === 'pc-both') els.statusText.textContent = 'GRAVANDO · AMBOS';
+        else if (sessionAudioSource === 'phone') els.statusText.textContent = 'GRAVANDO · CELULAR';
+        else els.statusText.textContent = 'GRAVANDO';
+      } else {
+        els.statusText.textContent = 'CAPTURANDO';
+      }
     }
   }
 
@@ -568,8 +666,22 @@ els.btnStop.addEventListener('click', async () => {
 
 window.api.onRecordingStarted((data) => {
   if (data.mode) mode = data.mode;
-  if (typeof data.useObsAudio === 'boolean') sessionHadAudio = !!data.useObsAudio;
-  else if (!sessionHadAudio) sessionHadAudio = mode === 'record' && withAudioSelected();
+  if (
+    data.audioSource === 'none'
+    || data.audioSource === 'pc-desktop'
+    || data.audioSource === 'pc-mic'
+    || data.audioSource === 'pc-both'
+    || data.audioSource === 'phone'
+  ) {
+    sessionAudioSource = data.audioSource;
+  } else if (data.audioSource === 'pc') {
+    sessionAudioSource = 'pc-desktop';
+  } else if (typeof data.useObsAudio === 'boolean') {
+    sessionAudioSource = data.useObsAudio ? 'pc-desktop' : 'none';
+  } else if (!sessionHadAudio) {
+    sessionAudioSource = mode === 'record' ? getAudioSource() : 'none';
+  }
+  sessionHadAudio = isPcAudio(sessionAudioSource);
   setActiveState(true, data);
 });
 
@@ -623,7 +735,19 @@ window.api.getStatus().then((status) => {
     if (s.maxFps) els.maxFps.value = s.maxFps;
     if (s.maxSize) els.maxSize.value = s.maxSize;
     if (s.format) els.format.value = s.format;
-    els.useObsAudio.checked = s.useObsAudio !== false;
+    const audio = (
+      s.audioSource === 'none'
+      || s.audioSource === 'pc-desktop'
+      || s.audioSource === 'pc-mic'
+      || s.audioSource === 'pc-both'
+      || s.audioSource === 'phone'
+    )
+      ? s.audioSource
+      : (s.audioSource === 'pc'
+        ? 'pc-desktop'
+        : (s.useObsAudio === false ? 'none' : 'pc-desktop'));
+    if (els.audioSource) els.audioSource.value = audio;
+    els.useObsAudio.checked = isPcAudio(audio);
     els.stayAwake.checked = s.stayAwake !== false;
     els.turnScreenOff.checked = !!s.turnScreenOff;
     if (els.stayAwake.checked && els.turnScreenOff.checked) {
@@ -635,7 +759,20 @@ window.api.getStatus().then((status) => {
   syncScreenUI();
   updateWifiFieldUI();
   if (status.isRecording) {
-    sessionHadAudio = !!status.useObsAudio;
+    if (
+      status.audioSource === 'none'
+      || status.audioSource === 'pc-desktop'
+      || status.audioSource === 'pc-mic'
+      || status.audioSource === 'pc-both'
+      || status.audioSource === 'phone'
+    ) {
+      sessionAudioSource = status.audioSource;
+    } else if (status.audioSource === 'pc') {
+      sessionAudioSource = 'pc-desktop';
+    } else {
+      sessionAudioSource = status.useObsAudio ? 'pc-desktop' : 'none';
+    }
+    sessionHadAudio = isPcAudio(sessionAudioSource);
     if (status.mode) mode = status.mode;
     setActiveState(true, { videoPath: status.videoPath });
   }

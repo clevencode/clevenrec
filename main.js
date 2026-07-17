@@ -13,7 +13,10 @@ let stoppingIntentionally = false;
 let obsStartTime = null;
 let scrcpyStartTime = null;
 let sessionMode = 'record'; // 'capture' | 'record'
+let sessionAudioSource = 'pc'; // 'none' | 'pc' | 'phone'
 let sessionUseObs = true;
+let sessionObsLaunchedByApp = false;
+let sessionObsPid = null;
 let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
 
 function which(cmd) {
@@ -257,7 +260,7 @@ function launchObsInBackground() {
       }
     );
     child.unref();
-    return { success: true, obsPath };
+    return { success: true, obsPath, pid: child.pid || null };
   } catch (err) {
     return {
       success: false,
@@ -273,14 +276,16 @@ function launchObsInBackground() {
 async function ensureObsReady({ timeoutMs = 45000 } = {}) {
   syncObsPasswordFromConfig();
   if (await tryConnectObs()) {
-    return { success: true, launched: false };
+    return { success: true, launched: false, pid: null };
   }
 
   const alreadyRunning = isObsProcessRunning();
+  let launchedPid = null;
   if (!alreadyRunning) {
     mainWindow?.webContents.send('status-text', 'Abrindo OBS em segundo plano…');
     const launched = launchObsInBackground();
     if (!launched.success) return launched;
+    launchedPid = launched.pid || null;
   } else {
     // OBS aberto mas WS ainda não — tenta habilitar config para próximo boot
     ensureObsWebsocketConfig();
@@ -292,8 +297,17 @@ async function ensureObsReady({ timeoutMs = 45000 } = {}) {
     await sleep(900);
     syncObsPasswordFromConfig();
     if (await tryConnectObs()) {
-      return { success: true, launched: !alreadyRunning };
+      return {
+        success: true,
+        launched: !alreadyRunning,
+        pid: alreadyRunning ? null : launchedPid,
+      };
     }
+  }
+
+  // Falhou: se nós abrimos o OBS, fecha para não deixar órfão
+  if (!alreadyRunning && launchedPid) {
+    await quitObsProcess(launchedPid);
   }
 
   return {
@@ -303,6 +317,53 @@ async function ensureObsReady({ timeoutMs = 45000 } = {}) {
       'Se for a 1ª vez: abra o OBS → Tools → WebSocket Server Settings → Enable → OK, ' +
       'feche o OBS e tente de novo. O ClevenRec passa a abri-lo sozinho.',
   };
+}
+
+function quitObsProcess(pid) {
+  return new Promise((resolve) => {
+    if (!pid) {
+      // fallback: só se tivermos certeza que o app subiu o OBS
+      if (process.platform === 'win32') {
+        exec('taskkill /IM obs64.exe /T', () => resolve());
+      } else {
+        exec('pkill -x obs || true', () => resolve());
+      }
+      return;
+    }
+    try {
+      if (process.platform === 'win32') {
+        exec(`taskkill /PID ${pid} /T`, () => {
+          setTimeout(() => {
+            exec(`taskkill /PID ${pid} /T /F`, () => resolve());
+          }, 800);
+        });
+      } else {
+        try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+        setTimeout(() => {
+          try { process.kill(pid, 'SIGKILL'); } catch (_) {}
+          resolve();
+        }, 800);
+      }
+    } catch (_) {
+      resolve();
+    }
+  });
+}
+
+async function closeObsIfLaunchedByApp() {
+  if (!sessionObsLaunchedByApp) return;
+  const pid = sessionObsPid;
+  sessionObsLaunchedByApp = false;
+  sessionObsPid = null;
+
+  try {
+    await obs.disconnect();
+  } catch (_) {
+    // ignore
+  }
+
+  await quitObsProcess(pid);
+  console.log('OBS fechado (foi aberto pelo ClevenRec).');
 }
 
 const config = {
@@ -323,7 +384,8 @@ const config = {
   maxFps: '30',
   format: 'mkv',
   maxSize: '0',
-  useObsAudio: true,
+  audioSource: 'pc-desktop', // 'none' | 'pc-desktop' | 'pc-mic' | 'pc-both' | 'phone'
+  useObsAudio: true, // legado: true quando audioSource começa com 'pc'
   stayAwake: true,
   turnScreenOff: false,
 };
@@ -399,7 +461,105 @@ function createWindow() {
   });
 }
 
+function normalizeAudioSource(settings = {}, fallback = config.audioSource || 'pc-desktop') {
+  const raw = settings.audioSource != null ? String(settings.audioSource) : '';
+  if (raw === 'none' || raw === 'pc-desktop' || raw === 'pc-mic' || raw === 'pc-both' || raw === 'phone') {
+    return raw;
+  }
+  if (raw === 'pc') return 'pc-desktop'; // legado
+  if (typeof settings.useObsAudio === 'boolean') {
+    return settings.useObsAudio ? 'pc-desktop' : 'none';
+  }
+  if (fallback === 'pc') return 'pc-desktop';
+  if (
+    fallback === 'none'
+    || fallback === 'pc-desktop'
+    || fallback === 'pc-mic'
+    || fallback === 'pc-both'
+    || fallback === 'phone'
+  ) {
+    return fallback;
+  }
+  return 'pc-desktop';
+}
+
+function isPcAudioSource(audioSource) {
+  return audioSource === 'pc-desktop' || audioSource === 'pc-mic' || audioSource === 'pc-both';
+}
+
+/**
+ * Roteia áudio no OBS: interno, microfone ou ambos.
+ */
+async function applyObsAudioRouting(audioSource) {
+  const wantDesktop = audioSource === 'pc-desktop' || audioSource === 'pc-both';
+  const wantMic = audioSource === 'pc-mic' || audioSource === 'pc-both';
+
+  let desktopNames = [];
+  let micNames = [];
+
+  try {
+    const special = await obs.call('GetSpecialInputs');
+    desktopNames = [special.desktop1, special.desktop2].filter(Boolean);
+    micNames = [special.mic1, special.mic2, special.mic3, special.mic4].filter(Boolean);
+  } catch (_) {
+    // segue para fallback por tipo
+  }
+
+  try {
+    const listed = await obs.call('GetInputList');
+    const inputs = listed?.inputs || [];
+    for (const input of inputs) {
+      const kind = String(input.inputKind || '');
+      const name = input.inputName;
+      if (!name) continue;
+      if (/wasapi_output_capture|pulse_output_capture|coreaudio_output_capture/i.test(kind)) {
+        if (!desktopNames.includes(name)) desktopNames.push(name);
+      }
+      if (/wasapi_input_capture|pulse_input_capture|coreaudio_input_capture|alsa_input/i.test(kind)) {
+        if (!micNames.includes(name)) micNames.push(name);
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  if (wantDesktop && desktopNames.length === 0) {
+    return {
+      success: false,
+      message:
+        'OBS sem áudio interno (Desktop Audio).\n\n' +
+        'No OBS: adicione “Áudio da Área de Trabalho” / Desktop Audio na cena.',
+    };
+  }
+  if (wantMic && micNames.length === 0) {
+    return {
+      success: false,
+      message:
+        'OBS sem microfone (Mic/Aux).\n\n' +
+        'No OBS: adicione uma fonte de Microfone / Mic/Aux na cena.',
+    };
+  }
+
+  for (const name of desktopNames) {
+    try {
+      await obs.call('SetInputMute', { inputName: name, inputMuted: !wantDesktop });
+    } catch (_) {
+      // ignore individual failures
+    }
+  }
+  for (const name of micNames) {
+    try {
+      await obs.call('SetInputMute', { inputName: name, inputMuted: !wantMic });
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  return { success: true, desktopNames, micNames };
+}
+
 function getSettingsSnapshot() {
+  const audioSource = normalizeAudioSource({}, config.audioSource);
   return {
     mode: config.mode,
     connection: config.connection,
@@ -408,13 +568,15 @@ function getSettingsSnapshot() {
     maxFps: config.maxFps,
     format: config.format,
     maxSize: config.maxSize,
-    useObsAudio: config.useObsAudio,
+    audioSource,
+    useObsAudio: isPcAudioSource(audioSource),
     stayAwake: config.stayAwake,
     turnScreenOff: config.turnScreenOff,
   };
 }
 
 function applySettings(settings = {}) {
+  const audioSource = normalizeAudioSource(settings, config.audioSource);
   Object.assign(config, {
     mode: settings.mode ?? config.mode,
     connection: settings.connection ?? config.connection,
@@ -423,7 +585,8 @@ function applySettings(settings = {}) {
     maxFps: String(settings.maxFps ?? config.maxFps),
     format: settings.format ?? config.format,
     maxSize: String(settings.maxSize ?? config.maxSize),
-    useObsAudio: settings.useObsAudio ?? config.useObsAudio,
+    audioSource,
+    useObsAudio: isPcAudioSource(audioSource),
     stayAwake: settings.stayAwake ?? config.stayAwake,
     turnScreenOff: settings.turnScreenOff ?? config.turnScreenOff,
   });
@@ -666,7 +829,8 @@ function getStatusPayload() {
   return {
     isRecording,
     mode: sessionMode,
-    useObsAudio: isRecording ? sessionUseObs : config.useObsAudio,
+    audioSource: isRecording ? sessionAudioSource : config.audioSource,
+    useObsAudio: isRecording ? sessionUseObs : isPcAudioSource(config.audioSource),
     videoPath: config.recordVideoPath,
     recordDir: config.recordDir,
     settings: getSettingsSnapshot(),
@@ -756,12 +920,15 @@ async function startSession(options = {}) {
   applySettings(options);
 
   sessionMode = config.mode;
-  sessionUseObs = config.mode === 'record' && config.useObsAudio;
+  sessionAudioSource = sessionMode === 'record'
+    ? normalizeAudioSource({}, config.audioSource)
+    : 'none';
+  sessionUseObs = isPcAudioSource(sessionAudioSource);
 
   try {
     stoppingIntentionally = false;
 
-    const bins = validateRuntimeBinaries({ needFfmpeg: sessionMode === 'record' && sessionUseObs });
+    const bins = validateRuntimeBinaries({ needFfmpeg: sessionUseObs });
     if (!bins.success) return bins;
 
     // Ativa depuração USB ou ADB Wi‑Fi conforme o toggle
@@ -788,22 +955,41 @@ async function startSession(options = {}) {
       };
     }
 
-    // 2. OBS (áudio) — sobe em segundo plano se necessário
+    // 2. OBS (áudio do PC: interno ou microfone)
+    sessionObsLaunchedByApp = false;
+    sessionObsPid = null;
     if (sessionUseObs) {
       const obsReady = await ensureObsReady({ timeoutMs: 45000 });
       if (!obsReady.success) {
-        return obsReady;
+        return {
+          ...obsReady,
+          message:
+            `${obsReady.message}\n\n` +
+            'Dica: troque a fonte de áudio para “Celular” (sem OBS) ou “Só vídeo”.',
+        };
+      }
+
+      if (obsReady.launched) {
+        sessionObsLaunchedByApp = true;
+        sessionObsPid = obsReady.pid || null;
+      }
+
+      const routed = await applyObsAudioRouting(sessionAudioSource);
+      if (!routed.success) {
+        await closeObsIfLaunchedByApp();
+        return routed;
       }
 
       try {
         await obs.call('StartRecord');
         obsStartTime = Date.now();
       } catch (e) {
+        await closeObsIfLaunchedByApp();
         return {
           success: false,
           message:
             `Erro ao iniciar gravação no OBS: ${e.message}\n\n` +
-            'Confirme que há uma cena/fonte de áudio ativa no OBS.',
+            'Confirme cena/fonte de áudio no OBS, ou use áudio do Celular.',
         };
       }
     } else {
@@ -813,8 +999,14 @@ async function startSession(options = {}) {
     // 3. Scrcpy
     const scrcpyArgs = [
       useWifi ? '-e' : '-d',
-      '--no-audio',
     ];
+
+    if (sessionAudioSource === 'phone') {
+      // Áudio interno do celular (playback) embutido no mesmo arquivo
+      scrcpyArgs.push('--audio-source=output');
+    } else {
+      scrcpyArgs.push('--no-audio');
+    }
 
     if (config.stayAwake) scrcpyArgs.push('--stay-awake');
     if (config.turnScreenOff) scrcpyArgs.push('--turn-screen-off');
@@ -874,14 +1066,27 @@ async function startSession(options = {}) {
     isRecording = true;
     const payload = {
       mode: sessionMode,
+      audioSource: sessionAudioSource,
       useObsAudio: sessionUseObs,
       videoPath: config.recordVideoPath,
     };
     mainWindow?.webContents.send('recording-started', payload);
 
+    const startMsg = sessionMode !== 'record'
+      ? 'Captura iniciada!'
+      : sessionAudioSource === 'pc-desktop'
+        ? 'Gravação iniciada (vídeo + áudio interno do PC)!'
+        : sessionAudioSource === 'pc-mic'
+          ? 'Gravação iniciada (vídeo + microfone do PC)!'
+          : sessionAudioSource === 'pc-both'
+            ? 'Gravação iniciada (vídeo + áudio interno e microfone)!'
+            : sessionAudioSource === 'phone'
+              ? 'Gravação iniciada (vídeo + áudio do celular)!'
+              : 'Gravação iniciada (só vídeo)!';
+
     return {
       success: true,
-      message: sessionMode === 'record' ? 'Gravação iniciada!' : 'Captura iniciada!',
+      message: startMsg,
       ...payload
     };
   } catch (error) {
@@ -912,6 +1117,7 @@ async function stopEverything() {
   stoppingIntentionally = true;
   const wasRecord = sessionMode === 'record';
   const usedObs = sessionUseObs;
+  const shouldCloseObs = sessionObsLaunchedByApp;
 
   let obsAudioPath = null;
   if (usedObs) {
@@ -957,33 +1163,45 @@ async function stopEverything() {
   mainWindow?.webContents.send('recording-stopped');
 
   if (!wasRecord) {
+    if (shouldCloseObs) await closeObsIfLaunchedByApp();
     return { success: true, message: 'Captura encerrada.', videoPath: null };
   }
 
   await new Promise((r) => setTimeout(r, 500));
 
+  let result;
   if (obsAudioPath && config.recordVideoPath) {
     const syncedPath = config.recordVideoPath.replace(/\.(mkv|mp4)$/i, '-sync.$1');
     const merge = await mergeVideoAudio(config.recordVideoPath, obsAudioPath, syncedPath);
     if (merge.success) {
-      return {
+      result = {
         success: true,
         message: 'Arquivo sincronizado gerado!',
         videoPath: syncedPath
       };
+    } else {
+      result = {
+        success: true,
+        message: `Gravação salva, mas a mesclagem falhou: ${merge.message}`,
+        videoPath: config.recordVideoPath
+      };
     }
-    return {
+  } else {
+    result = {
       success: true,
-      message: `Gravação salva, mas a mesclagem falhou: ${merge.message}`,
+      message: sessionAudioSource === 'phone'
+        ? 'Gravação salva (vídeo + áudio do celular)!'
+        : 'Gravação parada com sucesso!',
       videoPath: config.recordVideoPath
     };
   }
 
-  return {
-    success: true,
-    message: 'Gravação parada com sucesso!',
-    videoPath: config.recordVideoPath
-  };
+  // Fecha só o OBS que o ClevenRec abriu em segundo plano
+  if (shouldCloseObs) {
+    await closeObsIfLaunchedByApp();
+  }
+
+  return result;
 }
 
 function mergeVideoAudio(videoPath, audioPath, outputPath) {
