@@ -179,18 +179,13 @@
     </div>
     <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
 
-    <div class="toggle-list" id="obsBlock">
-      <label class="toggle-row is-on" id="obsRow">
-        <span class="toggle-copy">
-          <span class="toggle-title">Áudio OBS + sync</span>
-          <span class="toggle-desc">Só no modo Gravar</span>
-        </span>
-        <span class="toggle-switch">
-          <input type="checkbox" id="useObsAudio" checked>
-          <span class="toggle-track"></span>
-        </span>
-      </label>
+    <div class="label" style="margin-top:8px" id="audioLabel">Áudio</div>
+    <div class="modes" id="audioBlock" style="margin-bottom:8px">
+      <button type="button" id="audioOff">Sem áudio</button>
+      <button type="button" id="audioOn" class="active">Com áudio</button>
     </div>
+    <div class="options-hint" id="audioHint" style="margin-bottom:10px">Com áudio: OBS captura o som e sincroniza ao parar.</div>
+    <input type="checkbox" id="useObsAudio" checked hidden>
     <input type="checkbox" id="stayAwake" checked hidden>
     <input type="checkbox" id="turnScreenOff" hidden>
   </div>
@@ -262,8 +257,21 @@
     }
 
     function syncObs() {
-      $('obsRow').classList.toggle('is-on', $('useObsAudio').checked);
-      $('obsBlock').style.display = mode === 'record' ? 'flex' : 'none';
+      const withAudio = $('useObsAudio').checked;
+      $('audioOff').classList.toggle('active', !withAudio);
+      $('audioOn').classList.toggle('active', withAudio);
+      $('audioBlock').style.display = mode === 'record' ? 'grid' : 'none';
+      $('audioLabel').style.display = mode === 'record' ? 'block' : 'none';
+      $('audioHint').style.display = mode === 'record' ? 'block' : 'none';
+      $('audioHint').textContent = withAudio
+        ? 'Com áudio: OBS captura o som e sincroniza ao parar.'
+        : 'Só vídeo scrcpy — sem OBS.';
+    }
+
+    function setAudio(withAudio) {
+      if (active) return;
+      $('useObsAudio').checked = !!withAudio;
+      syncObs();
     }
 
     function settings() {
@@ -322,7 +330,8 @@
     $('screenKeep').onclick = () => setScreen('keep');
     $('screenDefault').onclick = () => setScreen('default');
     $('screenOff').onclick = () => setScreen('off');
-    $('useObsAudio').onchange = () => syncObs();
+    $('audioOff').onclick = () => setAudio(false);
+    $('audioOn').onclick = () => setAudio(true);
 
     $('cUsb').onclick = async () => {
       if (active) return;

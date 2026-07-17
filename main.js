@@ -69,7 +69,15 @@ function resolveFfmpegPath() {
   if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
     return process.env.FFMPEG_PATH;
   }
-  return which('ffmpeg') || which('ffmpeg.exe') || 'ffmpeg';
+
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const candidates = [
+    which('ffmpeg'),
+    which('ffmpeg.exe'),
+    path.join(localAppData, 'Microsoft', 'WinGet', 'Links', 'ffmpeg.exe'),
+  ];
+
+  return firstExisting(candidates) || 'ffmpeg';
 }
 
 function resolveDefaultRecordDir() {
@@ -265,6 +273,14 @@ function initRuntimePaths() {
     // ignore
   }
   config.recordVideoPath = path.join(config.recordDir, 'screenvid.mkv');
+}
+
+function getAdbPath() {
+  if (config.scrcpyPath && config.scrcpyPath.includes(path.sep)) {
+    const beside = path.join(path.dirname(config.scrcpyPath), process.platform === 'win32' ? 'adb.exe' : 'adb');
+    if (fs.existsSync(beside)) return beside;
+  }
+  return which('adb') || which('adb.exe') || 'adb';
 }
 
 async function detectDeviceWifiIp(adbPath, serial) {

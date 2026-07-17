@@ -16,7 +16,9 @@ const els = {
   useObsAudio: document.getElementById('useObsAudio'),
   stayAwake: document.getElementById('stayAwake'),
   turnScreenOff: document.getElementById('turnScreenOff'),
-  obsCheckWrap: document.getElementById('obsCheckWrap'),
+  audioOff: document.getElementById('audioOff'),
+  audioOn: document.getElementById('audioOn'),
+  audioHint: document.getElementById('audioHint'),
   optionsHint: document.getElementById('optionsHint'),
   screenKeep: document.getElementById('screenKeep'),
   screenDefault: document.getElementById('screenDefault'),
@@ -170,10 +172,31 @@ function syncScreenUI() {
   }
 }
 
-function syncObsToggle() {
-  if (!els.obsCheckWrap || !els.useObsAudio) return;
-  els.obsCheckWrap.classList.toggle('is-on', !!els.useObsAudio.checked);
-  els.obsCheckWrap.classList.toggle('is-disabled', !!els.useObsAudio.disabled);
+const AUDIO_HINTS = {
+  off: 'Só vídeo scrcpy — sem OBS e sem sync de áudio.',
+  on: 'Com áudio: OBS captura o som e o ClevenRec sincroniza ao parar.',
+};
+
+function syncAudioUI() {
+  if (!els.useObsAudio || !els.audioOff || !els.audioOn) return;
+  const withAudio = !!els.useObsAudio.checked;
+  els.audioOff.classList.toggle('active', !withAudio);
+  els.audioOn.classList.toggle('active', withAudio);
+  els.audioOff.setAttribute('aria-checked', (!withAudio).toString());
+  els.audioOn.setAttribute('aria-checked', withAudio.toString());
+  els.audioOff.disabled = isActive;
+  els.audioOn.disabled = isActive;
+  if (els.audioHint) {
+    els.audioHint.textContent = AUDIO_HINTS[withAudio ? 'on' : 'off'];
+  }
+}
+
+function setAudioMode(withAudio) {
+  if (isActive) return;
+  els.useObsAudio.checked = !!withAudio;
+  syncAudioUI();
+  applyModeUI();
+  window.api.saveSettings(getSettings());
 }
 
 function getSettings() {
@@ -210,23 +233,18 @@ function applyModeUI() {
     el.classList.toggle('hidden', !isRecord);
   });
 
-  // OBS só faz sentido em gravar
-  if (!isRecord) {
-    // keep checkbox state, but don't send useObsAudio when capturing
-  }
-
   els.btnStartLabel.textContent = isRecord ? 'Iniciar gravação' : 'Iniciar captura';
   els.hintText.textContent = isRecord
     ? (els.useObsAudio.checked
       ? `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: vídeo + áudio OBS sincronizados`
-      : `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: só vídeo scrcpy`)
+      : `Gravar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: só vídeo (sem áudio)`)
     : `Capturar via ${connection === 'wifi' ? 'Wi‑Fi' : 'USB'}: espelha a tela, sem salvar arquivo`;
 
   if (!isActive) {
     els.statusText.textContent = isRecord ? 'Pronto para gravar' : 'Pronto para capturar';
   }
 
-  syncObsToggle();
+  syncAudioUI();
   syncScreenUI();
 }
 
@@ -257,11 +275,11 @@ function setControlsEnabled(enabled) {
   [
     els.modeCapture, els.modeRecord, els.connUsb, els.connWifi, els.wifiAddress,
     els.btnClearWifi, els.btnConnectWifi, els.bitrate, els.maxFps, els.maxSize, els.format,
-    els.useObsAudio, els.btnFolder, els.screenKeep, els.screenDefault, els.screenOff,
+    els.audioOff, els.audioOn, els.btnFolder, els.screenKeep, els.screenDefault, els.screenOff,
   ].forEach((el) => {
     if (el) el.disabled = !enabled;
   });
-  syncObsToggle();
+  syncAudioUI();
   syncScreenUI();
 }
 
@@ -422,11 +440,8 @@ if (els.btnConnectWifi) {
   els[id].addEventListener('change', () => window.api.saveSettings(getSettings()));
 });
 
-els.useObsAudio.addEventListener('change', () => {
-  syncObsToggle();
-  applyModeUI();
-  window.api.saveSettings(getSettings());
-});
+if (els.audioOff) els.audioOff.addEventListener('click', () => setAudioMode(false));
+if (els.audioOn) els.audioOn.addEventListener('click', () => setAudioMode(true));
 
 els.btnFolder.addEventListener('click', async () => {
   const result = await window.api.chooseFolder();

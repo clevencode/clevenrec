@@ -703,17 +703,19 @@
 
         <input type="checkbox" id="stayAwake" checked hidden>
         <input type="checkbox" id="turnScreenOff" hidden>
+      </div>
 
-        <label class="toggle-row record-only is-on" id="obsCheckWrap">
-          <span class="toggle-copy">
-            <span class="toggle-title">Áudio via OBS + sync</span>
-            <span class="toggle-desc">Só no modo Gravar: captura áudio no OBS e sincroniza ao parar</span>
-          </span>
-          <span class="toggle-switch">
-            <input type="checkbox" id="useObsAudio" checked>
-            <span class="toggle-track" aria-hidden="true"></span>
-          </span>
-        </label>
+      <div class="card record-only" id="audioCard">
+        <div class="card-title">Áudio</div>
+        <div class="field">
+          <label id="audioLabel">Na gravação</label>
+          <div class="mode-switch" role="radiogroup" aria-labelledby="audioLabel" id="audioSwitch">
+            <button class="mode-btn" type="button" id="audioOff" data-audio="off" aria-checked="false">Sem áudio</button>
+            <button class="mode-btn active" type="button" id="audioOn" data-audio="on" aria-checked="true">Com áudio</button>
+          </div>
+          <div class="options-hint" id="audioHint">Com áudio: OBS captura o som e o ClevenRec sincroniza ao parar.</div>
+        </div>
+        <input type="checkbox" id="useObsAudio" checked hidden>
       </div>
 
       <div class="card" id="remoteCard">
@@ -750,7 +752,7 @@
         Parar
       </button>
       <div class="hint" id="hintText">
-        Gravar: vídeo scrcpy + áudio OBS → arquivo sincronizado (.mkv)
+        Gravar: escolha Sem áudio ou Com áudio (OBS + sync)
       </div>
     </div>
   </div>
