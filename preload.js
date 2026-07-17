@@ -8,9 +8,11 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   activateConnection: (payload) => ipcRenderer.invoke('activate-connection', payload),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
+  setPreviewBounds: (bounds) => ipcRenderer.invoke('set-preview-bounds', bounds),
 
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', (event, data) => callback(data)),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', () => callback()),
   onRecordingError: (callback) => ipcRenderer.on('recording-error', (event, msg) => callback(msg)),
   onStatusText: (callback) => ipcRenderer.on('status-text', (event, text) => callback(text)),
+  onPreviewState: (callback) => ipcRenderer.on('preview-state', (event, data) => callback(data)),
 });

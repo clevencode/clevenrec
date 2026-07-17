@@ -32,6 +32,7 @@
       "preload.js",
       "renderer.js",
       "remote-server.js",
+      "win-window.ps1",
       "index.html",
       "mobile.html",
       "splash.html",

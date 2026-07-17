@@ -1,9 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn, exec, execFileSync } = require('child_process');
+const { spawn, exec, execFile, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
 const { startRemoteServer } = require('./remote-server');
+
+const PREVIEW_WINDOW_TITLE = 'ClevenRec Preview';
+const WIN_WINDOW_SCRIPT = path.join(__dirname, 'win-window.ps1');
 
 let mainWindow;
 let splashWindow = null;
@@ -18,6 +21,11 @@ let sessionUseObs = true;
 let sessionObsLaunchedByApp = false;
 let sessionObsPid = null;
 let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
+/** Bounds do painel de preview relativos à área de conteúdo da janela (DIP). */
+let previewBoundsRel = { x: 400, y: 22, width: 320, height: 640 };
+let scrcpyDocked = false;
+let scrcpyDockTimer = null;
+let scrcpyDockAttempts = 0;
 
 function which(cmd) {
   try {
@@ -428,10 +436,10 @@ function createSplash() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 560,
-    height: 820,
-    minWidth: 520,
-    minHeight: 720,
+    width: 980,
+    height: 800,
+    minWidth: 860,
+    minHeight: 680,
     resizable: true,
     show: false,
     webPreferences: {
@@ -447,6 +455,14 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
+  mainWindow.on('resize', () => {
+    if (isRecording) syncScrcpyPreviewWindow();
+  });
+  mainWindow.on('move', () => {
+    // Com SetParent o filho acompanha; sem embed, reposiciona na tela
+    if (isRecording && !scrcpyDocked) syncScrcpyPreviewWindow();
+  });
+
   mainWindow.once('ready-to-show', () => {
     // splash mínimo ~1.2s para leitura da marca
     const reveal = () => {
@@ -459,6 +475,164 @@ function createWindow() {
     };
     setTimeout(reveal, 1200);
   });
+}
+
+function hwndFromNativeHandle(buf) {
+  if (!buf || !Buffer.isBuffer(buf)) return 0n;
+  if (buf.length >= 8) return buf.readBigUInt64LE(0);
+  if (buf.length >= 4) return BigInt(buf.readUInt32LE(0));
+  return 0n;
+}
+
+function getPreviewLayout() {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const winBounds = mainWindow.getBounds();
+  const content = mainWindow.getContentBounds();
+  const rel = previewBoundsRel || { x: 0, y: 0, width: 320, height: 640 };
+  const width = Math.max(120, Math.round(rel.width));
+  const height = Math.max(180, Math.round(rel.height));
+  const padX = Math.max(0, content.x - winBounds.x);
+  const padY = Math.max(0, content.y - winBounds.y);
+  const client = {
+    x: Math.round(padX + rel.x),
+    y: Math.round(padY + rel.y),
+    width,
+    height,
+  };
+  const dipScreen = {
+    x: Math.round(content.x + rel.x),
+    y: Math.round(content.y + rel.y),
+    width,
+    height,
+  };
+  const physical = screen.dipToScreenRect(mainWindow, dipScreen);
+  return { client, dipScreen, physical };
+}
+
+function runWinWindowAction(action, extraArgs = []) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32' || !fs.existsSync(WIN_WINDOW_SCRIPT)) {
+      resolve({ ok: false, out: 'unsupported' });
+      return;
+    }
+    const args = [
+      '-NoProfile',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', WIN_WINDOW_SCRIPT,
+      '-Action', action,
+      '-Title', PREVIEW_WINDOW_TITLE,
+      ...extraArgs,
+    ];
+    execFile('powershell.exe', args, { windowsHide: true, timeout: 8000 }, (err, stdout) => {
+      const out = String(stdout || '').trim();
+      resolve({ ok: !err && (out === 'ok' || out === '1'), out });
+    });
+  });
+}
+
+function clearScrcpyDockTimer() {
+  if (scrcpyDockTimer) {
+    clearTimeout(scrcpyDockTimer);
+    scrcpyDockTimer = null;
+  }
+}
+
+function resetScrcpyDockState() {
+  clearScrcpyDockTimer();
+  scrcpyDocked = false;
+  scrcpyDockAttempts = 0;
+}
+
+async function syncScrcpyPreviewWindow() {
+  if (!isRecording || !scrcpyProcess) return;
+  const layout = getPreviewLayout();
+  if (!layout) return;
+
+  if (scrcpyDocked) {
+    await runWinWindowAction('move', [
+      '-X', String(layout.client.x),
+      '-Y', String(layout.client.y),
+      '-W', String(layout.client.width),
+      '-H', String(layout.client.height),
+    ]);
+    return;
+  }
+
+  // Ainda não embutido: tenta posicionar pela tela (fallback / pré-embed)
+  await runWinWindowAction('move', [
+    '-X', String(layout.physical.x),
+    '-Y', String(layout.physical.y),
+    '-W', String(layout.physical.width),
+    '-H', String(layout.physical.height),
+  ]);
+}
+
+async function tryEmbedScrcpyWindow() {
+  if (!mainWindow || mainWindow.isDestroyed() || !isRecording) return false;
+  const layout = getPreviewLayout();
+  if (!layout) return false;
+
+  const parent = hwndFromNativeHandle(mainWindow.getNativeWindowHandle());
+  if (!parent) return false;
+
+  const result = await runWinWindowAction('embed', [
+    '-Parent', parent.toString(),
+    '-X', String(layout.client.x),
+    '-Y', String(layout.client.y),
+    '-W', String(layout.client.width),
+    '-H', String(layout.client.height),
+  ]);
+
+  if (result.ok) {
+    scrcpyDocked = true;
+    mainWindow?.webContents.send('preview-state', { live: true, docked: true });
+    return true;
+  }
+  return false;
+}
+
+function scheduleScrcpyDock() {
+  resetScrcpyDockState();
+  mainWindow?.webContents.send('preview-state', { live: true, docked: false });
+
+  const tick = async () => {
+    if (!isRecording || !scrcpyProcess) return;
+    scrcpyDockAttempts += 1;
+
+    const exists = await runWinWindowAction('exists');
+    if (exists.ok) {
+      const embedded = await tryEmbedScrcpyWindow();
+      if (embedded) return;
+      await syncScrcpyPreviewWindow();
+    }
+
+    if (scrcpyDockAttempts < 40) {
+      scrcpyDockTimer = setTimeout(tick, 250);
+    } else {
+      // Fica no modo overlay na tela
+      await syncScrcpyPreviewWindow();
+      mainWindow?.webContents.send('preview-state', { live: true, docked: false });
+    }
+  };
+
+  scrcpyDockTimer = setTimeout(tick, 400);
+}
+
+function buildScrcpyWindowArgs() {
+  const layout = getPreviewLayout();
+  const args = [
+    '--window-title', PREVIEW_WINDOW_TITLE,
+    '--window-borderless',
+  ];
+  if (layout) {
+    args.push(
+      '--window-x', String(layout.physical.x),
+      '--window-y', String(layout.physical.y),
+      '--window-width', String(layout.physical.width),
+      '--window-height', String(layout.physical.height),
+    );
+  }
+  return args;
 }
 
 function normalizeAudioSource(settings = {}, fallback = config.audioSource || 'pc-desktop') {
@@ -1017,6 +1191,7 @@ async function startSession(options = {}) {
       scrcpyArgs.push('--max-size', config.maxSize);
     }
     scrcpyArgs.push('--video-bit-rate', config.bitrate);
+    scrcpyArgs.push(...buildScrcpyWindowArgs());
 
     if (sessionMode === 'record') {
       config.recordVideoPath = buildRecordPath(config.recordDir, config.format);
@@ -1064,6 +1239,7 @@ async function startSession(options = {}) {
     });
 
     isRecording = true;
+    scheduleScrcpyDock();
     const payload = {
       mode: sessionMode,
       audioSource: sessionAudioSource,
@@ -1160,7 +1336,9 @@ async function stopEverything() {
   }
 
   isRecording = false;
+  resetScrcpyDockState();
   mainWindow?.webContents.send('recording-stopped');
+  mainWindow?.webContents.send('preview-state', { live: false, docked: false });
 
   if (!wasRecord) {
     if (shouldCloseObs) await closeObsIfLaunchedByApp();
@@ -1255,4 +1433,22 @@ ipcMain.handle('choose-folder', async () => {
     return { dir: config.recordDir, preview: buildRecordPath(config.recordDir) };
   }
   return null;
+});
+
+ipcMain.handle('set-preview-bounds', (_event, bounds = {}) => {
+  const x = Number(bounds.x);
+  const y = Number(bounds.y);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  if (![x, y, width, height].every((n) => Number.isFinite(n))) {
+    return { success: false };
+  }
+  previewBoundsRel = {
+    x: Math.max(0, Math.round(x)),
+    y: Math.max(0, Math.round(y)),
+    width: Math.max(80, Math.round(width)),
+    height: Math.max(120, Math.round(height)),
+  };
+  if (isRecording) syncScrcpyPreviewWindow();
+  return { success: true, bounds: previewBoundsRel };
 });

@@ -46,8 +46,145 @@
       height: 100%;
       display: flex;
       flex-direction: column;
-      padding: 22px 24px 20px;
-      gap: 16px;
+      padding: 0;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .workspace {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(360px, 420px) minmax(280px, 1fr);
+      gap: 0;
+    }
+
+    .controls-pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 18px 16px;
+      gap: 14px;
+      border-right: 1px solid var(--line);
+      background:
+        radial-gradient(ellipse 90% 40% at 20% -10%, rgba(61, 222, 168, 0.07), transparent),
+        var(--bg);
+    }
+
+    .preview-pane {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 20px 18px 16px;
+      background:
+        linear-gradient(160deg, #10141c 0%, #0a0c10 55%, #0c1018 100%);
+    }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .preview-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .preview-badge {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .preview-pane.is-live .preview-badge {
+      color: var(--danger);
+      border-color: rgba(255, 92, 92, 0.35);
+      background: var(--danger-dim);
+    }
+
+    .preview-stage {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 50% 30%, rgba(61, 222, 168, 0.05), transparent 55%),
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 11px,
+          rgba(255,255,255,0.015) 11px,
+          rgba(255,255,255,0.015) 12px
+        ),
+        #07090d;
+      overflow: hidden;
+    }
+
+    .preview-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px;
+      text-align: center;
+      transition: opacity 0.2s ease;
+    }
+
+    .preview-pane.is-live .preview-placeholder {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .preview-phone {
+      width: 72px;
+      height: 128px;
+      border-radius: 14px;
+      border: 1.5px solid rgba(255,255,255,0.14);
+      background: linear-gradient(180deg, rgba(61, 222, 168, 0.12), rgba(255,255,255,0.03));
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35);
+      position: relative;
+      margin-bottom: 8px;
+    }
+
+    .preview-phone::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 22px;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(255,255,255,0.18);
+    }
+
+    .preview-idle-title {
+      font-size: 14px;
+      font-weight: 650;
+      color: var(--text);
+    }
+
+    .preview-idle-sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 220px;
     }
 
     header {
@@ -133,7 +270,19 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--muted);
-      margin: 2px 0 -6px;
+      margin: 0;
+    }
+
+    .setup-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .setup-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
     .conn-status {
@@ -141,7 +290,7 @@
       font-size: 11px;
       color: var(--muted);
       line-height: 1.4;
-      min-height: 16px;
+      min-height: 30px;
     }
 
     .mode-hint {
@@ -149,7 +298,8 @@
       font-size: 11px;
       color: var(--muted);
       line-height: 1.4;
-      margin-top: -4px;
+      min-height: 30px;
+      margin: 0;
     }
 
     .conn-status.ok { color: var(--accent); }
@@ -657,6 +807,8 @@
 </head>
 <body>
   <div class="app">
+    <div class="workspace">
+      <div class="controls-pane">
     <header>
       <div class="brand">
         <div class="brand-name">Cleven<span>Rec</span></div>
@@ -668,19 +820,24 @@
       </div>
     </header>
 
-    <div class="section-label">Modo</div>
-    <div class="mode-switch" role="tablist" aria-label="Modo">
-      <button class="mode-btn" id="modeCapture" data-mode="capture" type="button" aria-selected="false">Capturar</button>
-      <button class="mode-btn active" id="modeRecord" data-mode="record" type="button" aria-selected="true">Gravar</button>
+    <div class="setup-grid">
+      <div class="setup-col">
+        <div class="section-label">Modo</div>
+        <div class="mode-switch" role="tablist" aria-label="Modo">
+          <button class="mode-btn" id="modeCapture" data-mode="capture" type="button" aria-selected="false">Capturar</button>
+          <button class="mode-btn active" id="modeRecord" data-mode="record" type="button" aria-selected="true">Gravar</button>
+        </div>
+        <div class="mode-hint" id="modeHint">Gravar salva um arquivo no PC.</div>
+      </div>
+      <div class="setup-col">
+        <div class="section-label">Conexão</div>
+        <div class="mode-switch" role="tablist" aria-label="Conexão">
+          <button class="mode-btn active" id="connUsb" data-conn="usb" type="button" aria-selected="true">USB</button>
+          <button class="mode-btn" id="connWifi" data-conn="wifi" type="button" aria-selected="false">Wi‑Fi</button>
+        </div>
+        <div class="conn-status" id="connStatus">USB pronto — usa o cabo com depuração ativa</div>
+      </div>
     </div>
-    <div class="mode-hint" id="modeHint">Gravar salva um arquivo no PC.</div>
-
-    <div class="section-label">Conexão</div>
-    <div class="mode-switch" role="tablist" aria-label="Conexão">
-      <button class="mode-btn active" id="connUsb" data-conn="usb" type="button" aria-selected="true">USB</button>
-      <button class="mode-btn" id="connWifi" data-conn="wifi" type="button" aria-selected="false">Wi‑Fi</button>
-    </div>
-    <div class="conn-status" id="connStatus">USB pronto — usa o cabo com depuração ativa</div>
 
     <div class="panel">
       <div class="card wifi-only hidden" id="wifiCard">
@@ -839,6 +996,24 @@
       <div class="hint" id="hintText">
         Gravar via USB: vídeo + áudio OBS → sync ao parar
       </div>
+    </div>
+      </div>
+
+      <aside class="preview-pane" id="previewPane" aria-label="Espelho do celular">
+        <div class="preview-header">
+          <div class="preview-title">Espelho</div>
+          <div class="preview-badge" id="previewBadge">Aguardando</div>
+        </div>
+        <div class="preview-stage" id="previewStage">
+          <div class="preview-placeholder" id="previewPlaceholder">
+            <div class="preview-phone" aria-hidden="true"></div>
+            <div class="preview-idle-title">Tela do celular</div>
+            <div class="preview-idle-sub" id="previewIdleSub">
+              Ao iniciar, o espelho aparece neste painel.
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   </div>
 
