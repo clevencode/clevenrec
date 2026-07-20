@@ -402,9 +402,198 @@ function setControlsEnabled(enabled) {
   ].forEach((el) => {
     if (el) el.disabled = !enabled;
   });
+  document.querySelectorAll('.phy-select').forEach((wrap) => {
+    const trigger = wrap.querySelector('.phy-select-trigger');
+    const select = wrap.querySelector('select');
+    if (trigger) trigger.disabled = !enabled || !!select?.disabled;
+    wrap.classList.toggle('is-disabled', !enabled);
+  });
   syncAudioUI();
   syncScreenUI();
 }
+
+/** Menus físicos — o popup nativo do Windows não herda o tema. */
+function enhancePhysicalSelects() {
+  const valueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+
+  document.querySelectorAll('select').forEach((select) => {
+    if (select.dataset.phyEnhanced === '1') return;
+    select.dataset.phyEnhanced = '1';
+    select.classList.add('phy-select-native');
+    select.setAttribute('tabindex', '-1');
+    select.setAttribute('aria-hidden', 'true');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'phy-select';
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(select);
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'phy-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (select.id) trigger.id = `${select.id}Trigger`;
+    trigger.innerHTML = '<span class="phy-select-value"></span><span class="phy-select-caret" aria-hidden="true"></span>';
+
+    const valueEl = trigger.querySelector('.phy-select-value');
+    const menu = document.createElement('div');
+    menu.className = 'phy-select-menu';
+    menu.setAttribute('role', 'listbox');
+    document.body.appendChild(menu);
+
+    function selectedOption() {
+      return select.options[select.selectedIndex] || select.options[0];
+    }
+
+    function syncFromSelect() {
+      const opt = selectedOption();
+      valueEl.textContent = opt ? opt.textContent : '';
+      menu.querySelectorAll('.phy-select-option').forEach((btn) => {
+        btn.classList.toggle('is-selected', btn.dataset.value === select.value);
+      });
+      trigger.disabled = !!select.disabled;
+    }
+
+    function rebuildOptions() {
+      menu.innerHTML = '';
+      Array.from(select.options).forEach((opt) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'phy-select-option';
+        btn.setAttribute('role', 'option');
+        btn.dataset.value = opt.value;
+        btn.textContent = opt.textContent;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          select.value = opt.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          syncFromSelect();
+          closeMenu();
+        });
+        menu.appendChild(btn);
+      });
+      syncFromSelect();
+    }
+
+    function positionMenu() {
+      const r = trigger.getBoundingClientRect();
+      const menuH = Math.min(240, window.innerHeight * 0.42);
+      const spaceBelow = window.innerHeight - r.bottom - 8;
+      const openUp = spaceBelow < Math.min(menuH, 160) && r.top > spaceBelow;
+
+      menu.style.left = `${Math.round(r.left)}px`;
+      menu.style.width = `${Math.round(r.width)}px`;
+      menu.style.maxHeight = `${Math.round(menuH)}px`;
+
+      if (openUp) {
+        menu.style.top = 'auto';
+        menu.style.bottom = `${Math.round(window.innerHeight - r.top + 6)}px`;
+      } else {
+        menu.style.bottom = 'auto';
+        menu.style.top = `${Math.round(r.bottom + 6)}px`;
+      }
+    }
+
+    function closeMenu() {
+      wrap.classList.remove('is-open');
+      menu.classList.remove('is-visible');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    function openMenu() {
+      if (select.disabled || trigger.disabled) return;
+      document.querySelectorAll('.phy-select.is-open').forEach((other) => {
+        if (other !== wrap) other.dispatchEvent(new CustomEvent('phy-close'));
+      });
+      positionMenu();
+      wrap.classList.add('is-open');
+      menu.classList.add('is-visible');
+      trigger.setAttribute('aria-expanded', 'true');
+      const selected = menu.querySelector('.phy-select-option.is-selected');
+      if (selected) selected.focus();
+    }
+
+    wrap.addEventListener('phy-close', closeMenu);
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (wrap.classList.contains('is-open')) closeMenu();
+      else openMenu();
+    });
+
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openMenu();
+      }
+    });
+
+    menu.addEventListener('keydown', (e) => {
+      const options = Array.from(menu.querySelectorAll('.phy-select-option'));
+      const idx = options.indexOf(document.activeElement);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu();
+        trigger.focus();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        options[Math.min(options.length - 1, idx + 1)]?.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        options[Math.max(0, idx - 1)]?.focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        document.activeElement?.click();
+      }
+    });
+
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      get() { return valueDesc.get.call(this); },
+      set(v) {
+        valueDesc.set.call(this, v);
+        syncFromSelect();
+      },
+    });
+
+    const nativeDisabled = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'disabled');
+    Object.defineProperty(select, 'disabled', {
+      configurable: true,
+      get() { return nativeDisabled.get.call(this); },
+      set(v) {
+        nativeDisabled.set.call(this, v);
+        trigger.disabled = !!v;
+        if (v) closeMenu();
+      },
+    });
+
+    wrap.insertBefore(trigger, select);
+    rebuildOptions();
+    select._phySync = syncFromSelect;
+  });
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.phy-select') || e.target.closest('.phy-select-menu')) return;
+    document.querySelectorAll('.phy-select.is-open').forEach((wrap) => {
+      wrap.dispatchEvent(new CustomEvent('phy-close'));
+    });
+  });
+
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('.phy-select.is-open').forEach((wrap) => {
+      wrap.dispatchEvent(new CustomEvent('phy-close'));
+    });
+  });
+
+  document.querySelector('.panel')?.addEventListener('scroll', () => {
+    document.querySelectorAll('.phy-select.is-open').forEach((wrap) => {
+      wrap.dispatchEvent(new CustomEvent('phy-close'));
+    });
+  }, { passive: true });
+}
+
+enhancePhysicalSelects();
 
 function setActiveState(active, info = {}) {
   isActive = active;

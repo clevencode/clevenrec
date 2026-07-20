@@ -433,9 +433,11 @@ function createSplash() {
   });
 }
 
+const WINDOW_NARROW_WIDTH = 480;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 480,
+    width: WINDOW_NARROW_WIDTH,
     height: 820,
     minWidth: 420,
     minHeight: 640,
@@ -448,11 +450,24 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     title: 'ClevenRec',
-    backgroundColor: '#14171d',
+    backgroundColor: '#0c0e12',
     icon: APP_ICON
   });
 
   mainWindow.loadFile('index.html');
+
+  // Ao sair de maximize/fullscreen, volta à largura do painel (CSS já evita esticar).
+  const restoreNarrowWidth = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMaximized() || mainWindow.isFullScreen()) return;
+    const [w, h] = mainWindow.getSize();
+    if (w > WINDOW_NARROW_WIDTH + 40) {
+      mainWindow.setSize(WINDOW_NARROW_WIDTH, h);
+    }
+  };
+
+  mainWindow.on('unmaximize', restoreNarrowWidth);
+  mainWindow.on('leave-full-screen', restoreNarrowWidth);
 
   mainWindow.once('ready-to-show', () => {
     // splash mínimo ~1.2s para leitura da marca
