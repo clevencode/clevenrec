@@ -1099,6 +1099,43 @@
       font-size: 10px;
     }
 
+    .transfer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .transfer-toolbar .card-title {
+      margin: 0;
+    }
+
+    .transfer-views {
+      display: inline-flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .transfer-views .btn-ghost {
+      padding: 0 10px;
+      height: 30px;
+      font-size: 10px;
+      opacity: 0.72;
+      min-width: 52px;
+    }
+
+    .transfer-views .btn-ghost.is-active {
+      opacity: 1;
+      color: #042218;
+      background:
+        linear-gradient(180deg, #3de8ab 0%, #1fba84 100%);
+      border-color: rgba(0,0,0,0.35);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.25),
+        0 2px 0 #0a4a35;
+    }
+
     .transfer-cats {
       display: flex;
       flex-wrap: wrap;
@@ -1199,6 +1236,64 @@
       color: var(--muted);
       font-size: 10px;
       flex-shrink: 0;
+    }
+
+    /* Grade: mosaico tipo gerenciador de arquivos */
+    .transfer-list.is-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+      gap: 8px;
+      align-content: start;
+      padding: 8px;
+    }
+
+    .transfer-list.is-grid li.xfer-section {
+      grid-column: 1 / -1;
+      padding: 8px 4px 0;
+    }
+
+    .transfer-list.is-grid li:not(.xfer-section):not(.transfer-empty) {
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 6px;
+      padding: 10px 8px;
+      min-height: 92px;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.04);
+      background: rgba(0,0,0,0.18);
+    }
+
+    .transfer-list.is-grid li:not(.xfer-section):not(.transfer-empty):hover,
+    .transfer-list.is-grid li.is-selected {
+      border-color: rgba(47, 211, 154, 0.35);
+    }
+
+    .transfer-list.is-grid .xfer-icon {
+      width: auto;
+      font-size: 22px;
+      line-height: 1;
+      opacity: 0.95;
+    }
+
+    .transfer-list.is-grid .xfer-name {
+      white-space: normal;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+      font-size: 11px;
+      line-height: 1.25;
+    }
+
+    .transfer-list.is-grid .xfer-meta {
+      font-size: 9px;
+      line-height: 1.2;
+    }
+
+    .transfer-list.is-grid .transfer-empty {
+      grid-column: 1 / -1;
     }
 
     .transfer-actions {
@@ -1468,7 +1563,13 @@
       </div>
 
       <div class="card" style="flex:1; min-height:0; display:flex; flex-direction:column;">
-        <div class="card-title">Conteúdo</div>
+        <div class="transfer-toolbar">
+          <div class="card-title">Conteúdo</div>
+          <div class="transfer-views" id="transferViews" role="group" aria-label="Modo de visualização">
+            <button class="btn-ghost is-active" type="button" data-view="list" title="Lista" aria-pressed="true">Lista</button>
+            <button class="btn-ghost" type="button" data-view="grid" title="Grade" aria-pressed="false">Grade</button>
+          </div>
+        </div>
         <div class="transfer-cats" id="transferCats" role="tablist" aria-label="Categoria">
           <button class="btn-ghost is-active" type="button" data-cat="all">Todos</button>
           <button class="btn-ghost" type="button" data-cat="folders">Pastas</button>
@@ -1478,7 +1579,7 @@
           <button class="btn-ghost" type="button" data-cat="docs">Docs</button>
           <button class="btn-ghost" type="button" data-cat="other">Outros</button>
         </div>
-        <ul class="transfer-list" id="transferList">
+        <ul class="transfer-list" id="transferList" data-view="list">
           <li class="transfer-empty">Conecte o celular e toque em Atualizar.</li>
         </ul>
       </div>
@@ -1489,7 +1590,7 @@
       <button class="btn-ghost" id="btnTransferPull" type="button">Baixar selecionado</button>
     </div>
     <div class="transfer-hint" id="transferHint">
-      Clique para selecionar · duplo clique abre pasta · filtros por tipo de mídia.
+      Lista ou grade · clique seleciona · duplo clique abre/baixa · filtros por tipo.
     </div>
   </aside>
   </div>

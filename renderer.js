@@ -58,6 +58,7 @@ const els = {
   transferHint: document.getElementById('transferHint'),
   transferQuick: document.getElementById('transferQuick'),
   transferCats: document.getElementById('transferCats'),
+  transferViews: document.getElementById('transferViews'),
   btnTransferUp: document.getElementById('btnTransferUp'),
   btnTransferRefresh: document.getElementById('btnTransferRefresh'),
   btnTransferPush: document.getElementById('btnTransferPush'),
@@ -1070,6 +1071,7 @@ let transferBusy = false;
 let transferEntries = [];
 let transferCurrentPath = '/sdcard/Download';
 let transferCategory = 'all';
+let transferViewMode = (localStorage.getItem('clevenrec.transferView') === 'grid') ? 'grid' : 'list';
 
 const TRANSFER_CAT_ORDER = ['folders', 'images', 'videos', 'audio', 'docs', 'other'];
 const TRANSFER_CAT_LABELS = {
@@ -1079,6 +1081,15 @@ const TRANSFER_CAT_LABELS = {
   audio: 'Áudio',
   docs: 'Documentos',
   other: 'Outros',
+};
+
+const TRANSFER_CAT_ICONS = {
+  folders: '▸',
+  images: '▣',
+  videos: '▶',
+  audio: '♫',
+  docs: '▤',
+  other: '·',
 };
 
 const TRANSFER_EXT = {
@@ -1117,6 +1128,11 @@ function setTransferBusy(busy, label) {
       btn.disabled = !!busy;
     });
   }
+  if (els.transferViews) {
+    els.transferViews.querySelectorAll('button').forEach((btn) => {
+      btn.disabled = !!busy;
+    });
+  }
   if (els.transferPanel) {
     els.transferPanel.classList.toggle('is-busy', !!busy);
   }
@@ -1141,6 +1157,34 @@ function fileExtension(name) {
   const dot = base.lastIndexOf('.');
   if (dot <= 0 || dot === base.length - 1) return '';
   return base.slice(dot + 1).toLowerCase();
+}
+
+function syncTransferViewButtons() {
+  if (!els.transferViews) return;
+  els.transferViews.querySelectorAll('[data-view]').forEach((btn) => {
+    const mode = btn.getAttribute('data-view') || 'list';
+    const active = mode === transferViewMode;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  if (els.transferList) {
+    els.transferList.classList.toggle('is-grid', transferViewMode === 'grid');
+    els.transferList.dataset.view = transferViewMode;
+  }
+}
+
+function setTransferViewMode(mode) {
+  transferViewMode = mode === 'grid' ? 'grid' : 'list';
+  try {
+    localStorage.setItem('clevenrec.transferView', transferViewMode);
+  } catch (_) { /* ignore quota / private mode */ }
+  syncTransferViewButtons();
+  renderTransferList(transferEntries, transferCurrentPath);
+}
+
+function transferIconFor(entry) {
+  const cat = categorizeEntry(entry);
+  return TRANSFER_CAT_ICONS[cat] || TRANSFER_CAT_ICONS.other;
 }
 
 function categorizeEntry(entry) {
@@ -1216,7 +1260,7 @@ function appendTransferEntry(entry, currentPath) {
   li.setAttribute('role', 'option');
   li.setAttribute('aria-selected', 'false');
   li.innerHTML = `
-    <span class="xfer-icon">${entry.isDir ? '▸' : '·'}</span>
+    <span class="xfer-icon">${transferIconFor(entry)}</span>
     <span class="xfer-name"></span>
     <span class="xfer-meta"></span>
   `;
@@ -1224,7 +1268,7 @@ function appendTransferEntry(entry, currentPath) {
   const metaParts = [];
   if (entry.isDir) metaParts.push('pasta');
   else {
-    metaParts.push(TRANSFER_CAT_LABELS[cat] || 'Outros');
+    if (transferViewMode === 'list') metaParts.push(TRANSFER_CAT_LABELS[cat] || 'Outros');
     const size = formatSize(entry.size);
     if (size) metaParts.push(size);
   }
@@ -1257,6 +1301,7 @@ function renderTransferList(entries = [], currentPath) {
   const previousSelectedPath = transferSelected?.path || null;
   transferEntries = Array.isArray(entries) ? entries : [];
   transferCurrentPath = currentPath || transferCurrentPath;
+  syncTransferViewButtons();
 
   const enriched = transferEntries.map((entry) => ({
     ...entry,
@@ -1302,10 +1347,13 @@ function renderTransferList(entries = [], currentPath) {
     TRANSFER_CAT_ORDER.forEach((cat) => {
       const group = visible.filter((entry) => entry.category === cat);
       if (!group.length) return;
-      const header = document.createElement('li');
-      header.className = 'xfer-section';
-      header.textContent = `${TRANSFER_CAT_LABELS[cat]} · ${group.length}`;
-      els.transferList.appendChild(header);
+      // Em grade, os ícones já separam tipos — cabeçalhos só na lista
+      if (transferViewMode === 'list') {
+        const header = document.createElement('li');
+        header.className = 'xfer-section';
+        header.textContent = `${TRANSFER_CAT_LABELS[cat]} · ${group.length}`;
+        els.transferList.appendChild(header);
+      }
       group.forEach((entry) => appendTransferEntry(entry, transferCurrentPath));
     });
   } else {
@@ -1316,8 +1364,9 @@ function renderTransferList(entries = [], currentPath) {
     .map((cat) => (counts[cat] ? `${TRANSFER_CAT_LABELS[cat]} ${counts[cat]}` : null))
     .filter(Boolean);
   if (!transferSelected) {
+    const viewLabel = transferViewMode === 'grid' ? 'grade' : 'lista';
     setTransferHint(countsHint.length
-      ? `${enriched.length} item(ns): ${countsHint.join(' · ')}`
+      ? `${enriched.length} item(ns) · ${viewLabel}: ${countsHint.join(' · ')}`
       : `${enriched.length} item(ns) em ${transferCurrentPath}`);
   }
 }
@@ -1465,6 +1514,15 @@ if (els.transferCats) {
       renderTransferList(transferEntries, transferCurrentPath);
     });
   });
+}
+if (els.transferViews) {
+  els.transferViews.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (transferBusy) return;
+      setTransferViewMode(btn.getAttribute('data-view') || 'list');
+    });
+  });
+  syncTransferViewButtons();
 }
 if (els.transferPath) {
   els.transferPath.addEventListener('keydown', (e) => {
