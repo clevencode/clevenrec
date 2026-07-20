@@ -51,7 +51,9 @@
       display: flex;
       justify-content: center;
       align-items: stretch;
+      gap: 14px;
       box-sizing: border-box;
+      padding: 0 10px;
     }
 
     .app {
@@ -72,14 +74,77 @@
         inset 0 -2px 6px rgba(0,0,0,0.45);
     }
 
+    .transfer-panel {
+      width: 100%;
+      max-width: 380px;
+      flex-shrink: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 16px 14px;
+      gap: 12px;
+      overflow: hidden;
+      position: relative;
+      background:
+        linear-gradient(165deg, #2c333e 0%, #1a1e25 42%, #14171d 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.12),
+        inset 0 -2px 6px rgba(0,0,0,0.45);
+    }
+
+    .transfer-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: var(--noise);
+      opacity: 0.045;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+    }
+
+    .transfer-panel > * { position: relative; z-index: 1; }
+
+    .transfer-panel.is-busy {
+      opacity: 0.92;
+    }
+
+    .transfer-panel.is-busy .transfer-list {
+      pointer-events: none;
+      opacity: 0.55;
+    }
+
+    .transfer-list li.is-selected {
+      outline: 1px solid rgba(61, 232, 171, 0.55);
+      background: rgba(61, 232, 171, 0.08);
+    }
+
+    .transfer-list li.is-dir .xfer-icon {
+      color: var(--accent);
+    }
+
     @media (min-width: 520px) {
-      .shell { padding: 14px 0; }
-      .app {
+      .shell { padding: 14px 10px; }
+      .app,
+      .transfer-panel {
         border-radius: 18px;
         box-shadow:
           inset 0 1px 0 rgba(255,255,255,0.12),
           inset 0 -2px 6px rgba(0,0,0,0.45),
           0 12px 36px rgba(0,0,0,0.5);
+      }
+    }
+
+    @media (max-width: 860px) {
+      .shell {
+        flex-direction: column;
+        overflow: auto;
+        align-items: center;
+      }
+      .app,
+      .transfer-panel {
+        height: auto;
+        min-height: min(820px, 100%);
+        max-width: 480px;
       }
     }
 
@@ -978,6 +1043,192 @@
     #btnInstallUpdate.is-visible {
       display: inline-flex;
     }
+
+    .transfer-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .transfer-header .brand-sub {
+      margin-top: 2px;
+    }
+
+    .transfer-device {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      text-align: right;
+      line-height: 1.35;
+      max-width: 160px;
+      word-break: break-all;
+    }
+
+    .transfer-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .transfer-path {
+      display: flex;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .transfer-path input {
+      flex: 1;
+      min-width: 0;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+    }
+
+    .transfer-quick {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .transfer-quick .btn-ghost {
+      padding: 0 10px;
+      height: 32px;
+      font-size: 10px;
+    }
+
+    .transfer-cats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .transfer-cats .btn-ghost {
+      padding: 0 10px;
+      height: 30px;
+      font-size: 10px;
+      opacity: 0.72;
+    }
+
+    .transfer-cats .btn-ghost.is-active {
+      opacity: 1;
+      color: #042218;
+      background:
+        linear-gradient(180deg, #3de8ab 0%, #1fba84 100%);
+      border-color: rgba(0,0,0,0.35);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.25),
+        0 2px 0 #0a4a35;
+    }
+
+    .transfer-list li.xfer-section {
+      cursor: default;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #6f7888;
+      font-family: 'Barlow', sans-serif;
+      padding: 10px 10px 4px;
+      pointer-events: none;
+      background: transparent;
+    }
+
+    .transfer-list li.xfer-section:hover {
+      background: transparent;
+    }
+
+    .transfer-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-height: 160px;
+      max-height: 280px;
+      overflow: auto;
+      background: var(--well);
+      border-radius: 12px;
+      border: 1px solid rgba(0,0,0,0.35);
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.35);
+      padding: 6px;
+    }
+
+    .transfer-list li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 12px;
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .transfer-list li:hover,
+    .transfer-list li.is-selected {
+      background: rgba(47, 211, 154, 0.12);
+    }
+
+    .transfer-list li.is-dir {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .transfer-list .xfer-icon {
+      width: 16px;
+      text-align: center;
+      opacity: 0.8;
+      flex-shrink: 0;
+    }
+
+    .transfer-list .xfer-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .transfer-list .xfer-meta {
+      color: var(--muted);
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .transfer-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .transfer-actions .btn-ghost {
+      height: 40px;
+      width: 100%;
+      justify-content: center;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .transfer-hint {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      min-height: 32px;
+    }
+
+    .transfer-empty {
+      padding: 24px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
   </style>
 </head>
 <body>
@@ -1188,6 +1439,59 @@
       </div>
     </div>
   </div>
+
+  <aside class="transfer-panel" id="transferPanel" aria-label="Transferência de arquivos">
+    <div class="transfer-header">
+      <div class="brand">
+        <div class="brand-name">Files</div>
+        <div class="brand-sub">PC ↔ celular · ADB</div>
+      </div>
+      <div class="transfer-device" id="transferDevice">Sem dispositivo</div>
+    </div>
+
+    <div class="transfer-body">
+      <div class="card">
+        <div class="card-title">Pasta no celular</div>
+        <div class="transfer-path">
+          <input type="text" id="transferPath" value="/sdcard/Download" spellcheck="false" autocomplete="off">
+          <button class="btn-ghost" id="btnTransferUp" type="button" title="Pasta acima">↑</button>
+          <button class="btn-ghost" id="btnTransferRefresh" type="button">Atualizar</button>
+        </div>
+        <div class="transfer-quick" id="transferQuick">
+          <button class="btn-ghost" type="button" data-path="/sdcard/Download">Download</button>
+          <button class="btn-ghost" type="button" data-path="/sdcard/DCIM/Camera">Câmera</button>
+          <button class="btn-ghost" type="button" data-path="/sdcard/Pictures">Imagens</button>
+          <button class="btn-ghost" type="button" data-path="/sdcard/Movies">Vídeos</button>
+          <button class="btn-ghost" type="button" data-path="/sdcard/Music">Áudio</button>
+          <button class="btn-ghost" type="button" data-path="/sdcard/Documents">Docs</button>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+        <div class="card-title">Conteúdo</div>
+        <div class="transfer-cats" id="transferCats" role="tablist" aria-label="Categoria">
+          <button class="btn-ghost is-active" type="button" data-cat="all">Todos</button>
+          <button class="btn-ghost" type="button" data-cat="folders">Pastas</button>
+          <button class="btn-ghost" type="button" data-cat="images">Imagens</button>
+          <button class="btn-ghost" type="button" data-cat="videos">Vídeos</button>
+          <button class="btn-ghost" type="button" data-cat="audio">Áudio</button>
+          <button class="btn-ghost" type="button" data-cat="docs">Docs</button>
+          <button class="btn-ghost" type="button" data-cat="other">Outros</button>
+        </div>
+        <ul class="transfer-list" id="transferList">
+          <li class="transfer-empty">Conecte o celular e toque em Atualizar.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="transfer-actions">
+      <button class="btn-ghost" id="btnTransferPush" type="button">Enviar ao celular</button>
+      <button class="btn-ghost" id="btnTransferPull" type="button">Baixar selecionado</button>
+    </div>
+    <div class="transfer-hint" id="transferHint">
+      Clique para selecionar · duplo clique abre pasta · filtros por tipo de mídia.
+    </div>
+  </aside>
   </div>
 
   <script src="renderer.js"></script>

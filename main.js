@@ -565,10 +565,13 @@ function createSplash() {
 }
 
 const WINDOW_NARROW_WIDTH = 480;
+const WINDOW_TRANSFER_WIDTH = 380;
+const WINDOW_SHELL_GAP = 34; // gap 14 + padding lateral
+const WINDOW_EXPANDED_WIDTH = WINDOW_NARROW_WIDTH + WINDOW_TRANSFER_WIDTH + WINDOW_SHELL_GAP;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: WINDOW_NARROW_WIDTH,
+    width: WINDOW_EXPANDED_WIDTH,
     height: 820,
     minWidth: 420,
     minHeight: 640,
@@ -587,18 +590,18 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
-  // Ao sair de maximize/fullscreen, volta à largura do painel (CSS já evita esticar).
-  const restoreNarrowWidth = () => {
+  // Ao sair de maximize/fullscreen, volta à largura dos dois painéis.
+  const restorePanelWidth = () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (mainWindow.isMaximized() || mainWindow.isFullScreen()) return;
     const [w, h] = mainWindow.getSize();
-    if (w > WINDOW_NARROW_WIDTH + 40) {
-      mainWindow.setSize(WINDOW_NARROW_WIDTH, h);
+    if (w > WINDOW_EXPANDED_WIDTH + 40) {
+      mainWindow.setSize(WINDOW_EXPANDED_WIDTH, h);
     }
   };
 
-  mainWindow.on('unmaximize', restoreNarrowWidth);
-  mainWindow.on('leave-full-screen', restoreNarrowWidth);
+  mainWindow.on('unmaximize', restorePanelWidth);
+  mainWindow.on('leave-full-screen', restorePanelWidth);
 
   mainWindow.once('ready-to-show', () => {
     // splash mínimo ~1.2s para leitura da marca
@@ -746,10 +749,10 @@ function applySettings(settings = {}) {
   return getSettingsSnapshot();
 }
 
-function runAdb(adbPath, args) {
+function runAdb(adbPath, args, { timeout = 15000 } = {}) {
   const argv = Array.isArray(args) ? args : String(args).match(/(?:[^\s"]+|"[^"]*")+/g)?.map((s) => s.replace(/^"|"$/g, '')) || [];
   return new Promise((resolve) => {
-    execFile(adbPath, argv, { timeout: 15000, windowsHide: true }, (err, stdout, stderr) => {
+    execFile(adbPath, argv, { timeout, windowsHide: true, maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
         stdout: (stdout || '').toString(),
@@ -1430,6 +1433,225 @@ ipcMain.handle('choose-folder', async () => {
   return null;
 });
 
+function normalizeDevicePath(input) {
+  const raw = String(input || '').trim().replace(/\\/g, '/');
+  if (!raw) return '/sdcard/Download';
+  let cleaned = raw.replace(/\/+/g, '/');
+  if (!cleaned.startsWith('/')) cleaned = `/${cleaned}`;
+  if (cleaned.length > 1 && cleaned.endsWith('/')) cleaned = cleaned.slice(0, -1);
+  return cleaned;
+}
+
+function isAllowedDevicePath(devicePath) {
+  const p = normalizeDevicePath(devicePath).toLowerCase();
+  return (
+    p === '/sdcard'
+    || p.startsWith('/sdcard/')
+    || p === '/storage/emulated/0'
+    || p.startsWith('/storage/emulated/0/')
+    || p.startsWith('/storage/')
+  );
+}
+
+function parentDevicePath(devicePath) {
+  const p = normalizeDevicePath(devicePath);
+  if (p === '/' || p === '/sdcard' || p === '/storage/emulated/0') return p;
+  const idx = p.lastIndexOf('/');
+  if (idx <= 0) return '/';
+  return p.slice(0, idx) || '/';
+}
+
+function parseLsLine(line) {
+  const trimmed = String(line || '').trim();
+  if (!trimmed || trimmed.startsWith('total ')) return null;
+  // long listing: drwxrwx--- 2 ... name
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 8) {
+    // plain name fallback
+    const name = trimmed.replace(/\/$/, '');
+    if (!name || name === '.' || name === '..') return null;
+    return { name, isDir: trimmed.endsWith('/'), size: null, raw: trimmed };
+  }
+  const mode = parts[0];
+  // Symlink (l): só trata como pasta se o listing marcar com /
+  const isDir = mode.startsWith('d') || (mode.startsWith('l') && trimmed.endsWith('/'));
+  const size = /^\d+$/.test(parts[4]) ? Number(parts[4]) : null;
+  // date/time then name — name may contain spaces (index 7+)
+  let name = parts.slice(7).join(' ');
+  // some ls put year/time differently; if name empty, take last token
+  if (!name) name = parts[parts.length - 1];
+  name = name.replace(/\/$/, '');
+  if (!name || name === '.' || name === '..') return null;
+  return { name, isDir, size, raw: trimmed };
+}
+
+async function getPrimaryDeviceSerial() {
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+  const listed = await runAdb(adbPath, ['devices']);
+  const devices = parseAdbDevices(listed.stdout || '');
+  if (!devices.length) {
+    return { success: false, message: 'Nenhum dispositivo ADB conectado.', devices: [] };
+  }
+  // Prefer USB (sem :) when available
+  const usb = devices.find((d) => !d.isWifi);
+  const chosen = usb || devices[0];
+  return { success: true, serial: chosen.serial, devices };
+}
+
+ipcMain.handle('transfer-devices', async () => safeIpc(async () => {
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+  return {
+    success: true,
+    serial: info.serial,
+    devices: info.devices,
+    message: `${info.devices.length} dispositivo(s)`,
+  };
+}, 'Falha ao listar dispositivos'));
+
+ipcMain.handle('transfer-list', async (_event, payload = {}) => safeIpc(async () => {
+  const dir = normalizeDevicePath(payload.path || '/sdcard/Download');
+  if (!isAllowedDevicePath(dir)) {
+    return { success: false, message: 'Pasta não permitida. Use /sdcard ou /storage.' };
+  }
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+  const base = ['-s', info.serial, 'shell', 'ls', '-la', '--', dir];
+  const result = await runAdb(adbPath, base, { timeout: 20000 });
+  if (!result.ok && !(result.stdout || '').trim()) {
+    return {
+      success: false,
+      message: (result.stderr || result.stdout || 'Não foi possível listar a pasta.').trim().slice(0, 240),
+      path: dir,
+      serial: info.serial,
+    };
+  }
+
+  const entries = (result.stdout || '')
+    .split(/\r?\n/)
+    .map(parseLsLine)
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
+  return {
+    success: true,
+    path: dir,
+    parent: parentDevicePath(dir),
+    serial: info.serial,
+    entries,
+  };
+}, 'Falha ao listar pasta do celular'));
+
+ipcMain.handle('transfer-choose-files', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+    title: 'Enviar para o celular',
+  });
+  if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+  return { success: true, files: result.filePaths };
+});
+
+ipcMain.handle('transfer-choose-save-dir', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Salvar arquivos do celular em…',
+  });
+  if (result.canceled || !result.filePaths?.[0]) return { success: false, canceled: true };
+  return { success: true, dir: result.filePaths[0] };
+});
+
+ipcMain.handle('transfer-push', async (_event, payload = {}) => safeIpc(async () => {
+  const remoteDir = normalizeDevicePath(payload.remoteDir || '/sdcard/Download');
+  if (!isAllowedDevicePath(remoteDir)) {
+    return { success: false, message: 'Destino não permitido. Use /sdcard ou /storage.' };
+  }
+  const files = Array.isArray(payload.files) ? payload.files.filter(Boolean) : [];
+  if (!files.length) return { success: false, message: 'Nenhum arquivo selecionado.' };
+
+  for (const file of files) {
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      return { success: false, message: `Arquivo inválido: ${file}` };
+    }
+  }
+
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+
+  const sent = [];
+  for (const file of files) {
+    const result = await runAdb(
+      adbPath,
+      ['-s', info.serial, 'push', file, remoteDir + '/'],
+      { timeout: 10 * 60 * 1000 }
+    );
+    if (!result.ok) {
+      return {
+        success: false,
+        message: (result.stderr || result.stdout || `Falha ao enviar ${path.basename(file)}`).trim().slice(0, 300),
+        sent,
+        serial: info.serial,
+      };
+    }
+    sent.push(path.basename(file));
+  }
+
+  return {
+    success: true,
+    message: sent.length === 1
+      ? `Enviado: ${sent[0]} → ${remoteDir}`
+      : `${sent.length} arquivos enviados → ${remoteDir}`,
+    sent,
+    path: remoteDir,
+    serial: info.serial,
+  };
+}, 'Falha ao enviar arquivo'));
+
+ipcMain.handle('transfer-pull', async (_event, payload = {}) => safeIpc(async () => {
+  const remotePath = normalizeDevicePath(payload.remotePath || '');
+  const localDir = payload.localDir;
+  if (!remotePath || !isAllowedDevicePath(remotePath)) {
+    return { success: false, message: 'Selecione um arquivo/pasta em /sdcard ou /storage.' };
+  }
+  if (!localDir || !fs.existsSync(localDir)) {
+    return { success: false, message: 'Pasta local inválida.' };
+  }
+
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+  const result = await runAdb(
+    adbPath,
+    ['-s', info.serial, 'pull', remotePath, localDir],
+    { timeout: 10 * 60 * 1000 }
+  );
+  if (!result.ok) {
+    return {
+      success: false,
+      message: (result.stderr || result.stdout || 'Falha ao baixar.').trim().slice(0, 300),
+      serial: info.serial,
+    };
+  }
+
+  const name = path.posix.basename(remotePath);
+  return {
+    success: true,
+    message: `Baixado: ${name} → ${localDir}`,
+    localDir,
+    remotePath,
+    serial: info.serial,
+  };
+}, 'Falha ao baixar arquivo'));
+
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('get-update-status', () => ({
@@ -1452,5 +1674,18 @@ ipcMain.handle('open-external', async (_event, url) => {
     return { success: false, message: 'URL inválida.' };
   }
   await shell.openExternal(url);
+  return { success: true };
+});
+
+ipcMain.handle('open-path', async (_event, target) => {
+  if (!target || typeof target !== 'string') {
+    return { success: false, message: 'Caminho inválido.' };
+  }
+  const resolved = path.resolve(target);
+  if (!fs.existsSync(resolved)) {
+    return { success: false, message: 'Pasta ou arquivo não encontrado.' };
+  }
+  const err = await shell.openPath(resolved);
+  if (err) return { success: false, message: err };
   return { success: true };
 });

@@ -52,6 +52,17 @@ const els = {
   btnCheckUpdate: document.getElementById('btnCheckUpdate'),
   btnInstallUpdate: document.getElementById('btnInstallUpdate'),
   btnOpenReleases: document.getElementById('btnOpenReleases'),
+  transferDevice: document.getElementById('transferDevice'),
+  transferPath: document.getElementById('transferPath'),
+  transferList: document.getElementById('transferList'),
+  transferHint: document.getElementById('transferHint'),
+  transferQuick: document.getElementById('transferQuick'),
+  transferCats: document.getElementById('transferCats'),
+  btnTransferUp: document.getElementById('btnTransferUp'),
+  btnTransferRefresh: document.getElementById('btnTransferRefresh'),
+  btnTransferPush: document.getElementById('btnTransferPush'),
+  btnTransferPull: document.getElementById('btnTransferPull'),
+  transferPanel: document.getElementById('transferPanel'),
 };
 
 let mode = 'record';
@@ -1052,3 +1063,419 @@ Promise.all([
     currentVersion: version || status?.currentVersion || '—',
   });
 });
+
+/* —— Transferência PC ↔ celular (painel direito) —— */
+let transferSelected = null;
+let transferBusy = false;
+let transferEntries = [];
+let transferCurrentPath = '/sdcard/Download';
+let transferCategory = 'all';
+
+const TRANSFER_CAT_ORDER = ['folders', 'images', 'videos', 'audio', 'docs', 'other'];
+const TRANSFER_CAT_LABELS = {
+  folders: 'Pastas',
+  images: 'Imagens',
+  videos: 'Vídeos',
+  audio: 'Áudio',
+  docs: 'Documentos',
+  other: 'Outros',
+};
+
+const TRANSFER_EXT = {
+  images: new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif', 'svg', 'tif', 'tiff', 'raw', 'dng']),
+  videos: new Set(['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', '3gp', 'm4v', 'flv', 'ts', 'mpeg', 'mpg']),
+  audio: new Set(['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 'amr']),
+  docs: new Set([
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'odt', 'ods', 'odp',
+    'csv', 'json', 'xml', 'md', 'epub', 'pages', 'numbers', 'key',
+  ]),
+};
+
+function setTransferHint(text) {
+  if (els.transferHint) els.transferHint.textContent = text || '';
+}
+
+function setTransferBusy(busy, label) {
+  transferBusy = busy;
+  const controls = [
+    els.btnTransferRefresh,
+    els.btnTransferPush,
+    els.btnTransferPull,
+    els.btnTransferUp,
+    els.transferPath,
+  ];
+  controls.forEach((el) => {
+    if (el) el.disabled = !!busy;
+  });
+  if (els.transferQuick) {
+    els.transferQuick.querySelectorAll('button').forEach((btn) => {
+      btn.disabled = !!busy;
+    });
+  }
+  if (els.transferCats) {
+    els.transferCats.querySelectorAll('button').forEach((btn) => {
+      btn.disabled = !!busy;
+    });
+  }
+  if (els.transferPanel) {
+    els.transferPanel.classList.toggle('is-busy', !!busy);
+  }
+  if (label) setTransferHint(label);
+}
+
+function formatSize(n) {
+  if (n == null || Number.isNaN(n)) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function joinRemote(dir, name) {
+  const base = String(dir || '').replace(/\/+$/, '') || '/';
+  return base === '/' ? `/${name}` : `${base}/${name}`;
+}
+
+function fileExtension(name) {
+  const base = String(name || '').split(/[\\/]/).pop() || '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0 || dot === base.length - 1) return '';
+  return base.slice(dot + 1).toLowerCase();
+}
+
+function categorizeEntry(entry) {
+  if (entry.isDir) return 'folders';
+  const ext = fileExtension(entry.name);
+  if (!ext) return 'other';
+  if (TRANSFER_EXT.images.has(ext)) return 'images';
+  if (TRANSFER_EXT.videos.has(ext)) return 'videos';
+  if (TRANSFER_EXT.audio.has(ext)) return 'audio';
+  if (TRANSFER_EXT.docs.has(ext)) return 'docs';
+  return 'other';
+}
+
+function countByCategory(entries) {
+  const counts = Object.fromEntries(TRANSFER_CAT_ORDER.map((cat) => [cat, 0]));
+  entries.forEach((entry) => {
+    const cat = entry.category || categorizeEntry(entry);
+    if (counts[cat] != null) counts[cat] += 1;
+  });
+  return counts;
+}
+
+function syncTransferCatButtons(counts = null) {
+  if (!els.transferCats) return;
+  const tallies = counts || countByCategory(
+    transferEntries.map((entry) => ({ ...entry, category: categorizeEntry(entry) }))
+  );
+  els.transferCats.querySelectorAll('[data-cat]').forEach((btn) => {
+    const cat = btn.getAttribute('data-cat') || 'all';
+    btn.classList.toggle('is-active', cat === transferCategory);
+    const base = btn.dataset.label || btn.textContent.split('·')[0].trim();
+    btn.dataset.label = base;
+    if (cat === 'all') {
+      const total = transferEntries.length;
+      btn.textContent = total ? `${base} · ${total}` : base;
+    } else {
+      const n = tallies[cat] || 0;
+      btn.textContent = n ? `${base} · ${n}` : base;
+    }
+  });
+}
+
+function selectTransferEntry(entry, currentPath) {
+  if (!els.transferList) return;
+  const remotePath = joinRemote(currentPath, entry.name);
+  els.transferList.querySelectorAll('li[data-name]').forEach((n) => {
+    n.classList.toggle('is-selected', n.dataset.name === entry.name);
+  });
+  transferSelected = {
+    name: entry.name,
+    isDir: !!entry.isDir,
+    path: remotePath,
+    category: categorizeEntry(entry),
+  };
+  const kind = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[transferSelected.category] || 'Arquivo');
+  setTransferHint(`${kind} selecionado · toque em Baixar para trazer ao PC`);
+  if (els.btnTransferPull) els.btnTransferPull.disabled = !!transferBusy;
+}
+
+function openTransferFolder(entry, currentPath) {
+  if (!entry?.isDir) return;
+  els.transferPath.value = joinRemote(currentPath, entry.name);
+  refreshTransferList();
+}
+
+function appendTransferEntry(entry, currentPath) {
+  const li = document.createElement('li');
+  const cat = categorizeEntry(entry);
+  li.className = entry.isDir ? 'is-dir' : `is-file is-${cat}`;
+  li.dataset.name = entry.name;
+  li.dataset.dir = entry.isDir ? '1' : '0';
+  li.dataset.cat = cat;
+  li.setAttribute('role', 'option');
+  li.setAttribute('aria-selected', 'false');
+  li.innerHTML = `
+    <span class="xfer-icon">${entry.isDir ? '▸' : '·'}</span>
+    <span class="xfer-name"></span>
+    <span class="xfer-meta"></span>
+  `;
+  li.querySelector('.xfer-name').textContent = entry.name;
+  const metaParts = [];
+  if (entry.isDir) metaParts.push('pasta');
+  else {
+    metaParts.push(TRANSFER_CAT_LABELS[cat] || 'Outros');
+    const size = formatSize(entry.size);
+    if (size) metaParts.push(size);
+  }
+  li.querySelector('.xfer-meta').textContent = metaParts.join(' · ');
+
+  // Padrão file manager: click seleciona; duplo clique abre pasta
+  li.addEventListener('click', () => {
+    selectTransferEntry(entry, currentPath);
+    li.setAttribute('aria-selected', 'true');
+  });
+  li.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    if (entry.isDir) openTransferFolder(entry, currentPath);
+    else {
+      selectTransferEntry(entry, currentPath);
+      pullFromDevice();
+    }
+  });
+
+  if (transferSelected?.path === joinRemote(currentPath, entry.name)) {
+    li.classList.add('is-selected');
+    li.setAttribute('aria-selected', 'true');
+  }
+
+  els.transferList.appendChild(li);
+}
+
+function renderTransferList(entries = [], currentPath) {
+  if (!els.transferList) return;
+  const previousSelectedPath = transferSelected?.path || null;
+  transferEntries = Array.isArray(entries) ? entries : [];
+  transferCurrentPath = currentPath || transferCurrentPath;
+
+  const enriched = transferEntries.map((entry) => ({
+    ...entry,
+    category: categorizeEntry(entry),
+  }));
+  const counts = countByCategory(enriched);
+  syncTransferCatButtons(counts);
+
+  const visible = transferCategory === 'all'
+    ? enriched
+    : enriched.filter((entry) => entry.category === transferCategory);
+
+  if (!transferEntries.length) {
+    transferSelected = null;
+    els.transferList.innerHTML = '<li class="transfer-empty">Pasta vazia neste caminho.</li>';
+    setTransferHint('Envie arquivos do PC ou escolha outro atalho acima.');
+    return;
+  }
+  if (!visible.length) {
+    transferSelected = null;
+    els.transferList.innerHTML = `<li class="transfer-empty">Nada em ${TRANSFER_CAT_LABELS[transferCategory] || transferCategory} nesta pasta.</li>`;
+    setTransferHint('Troque o filtro ou abra outra pasta.');
+    return;
+  }
+
+  els.transferList.innerHTML = '';
+  // Restaura seleção se o item ainda existe
+  if (previousSelectedPath) {
+    const stillThere = enriched.find((e) => joinRemote(transferCurrentPath, e.name) === previousSelectedPath);
+    transferSelected = stillThere
+      ? {
+        name: stillThere.name,
+        isDir: !!stillThere.isDir,
+        path: previousSelectedPath,
+        category: stillThere.category,
+      }
+      : null;
+  } else {
+    transferSelected = null;
+  }
+
+  if (transferCategory === 'all') {
+    TRANSFER_CAT_ORDER.forEach((cat) => {
+      const group = visible.filter((entry) => entry.category === cat);
+      if (!group.length) return;
+      const header = document.createElement('li');
+      header.className = 'xfer-section';
+      header.textContent = `${TRANSFER_CAT_LABELS[cat]} · ${group.length}`;
+      els.transferList.appendChild(header);
+      group.forEach((entry) => appendTransferEntry(entry, transferCurrentPath));
+    });
+  } else {
+    visible.forEach((entry) => appendTransferEntry(entry, transferCurrentPath));
+  }
+
+  const countsHint = TRANSFER_CAT_ORDER
+    .map((cat) => (counts[cat] ? `${TRANSFER_CAT_LABELS[cat]} ${counts[cat]}` : null))
+    .filter(Boolean);
+  if (!transferSelected) {
+    setTransferHint(countsHint.length
+      ? `${enriched.length} item(ns): ${countsHint.join(' · ')}`
+      : `${enriched.length} item(ns) em ${transferCurrentPath}`);
+  }
+}
+
+async function refreshTransferList(options = {}) {
+  if (!els.transferPath) return;
+  if (transferBusy && !options.force) return;
+  const pathValue = els.transferPath.value.trim() || '/sdcard/Download';
+  const restoreBusy = transferBusy;
+  setTransferBusy(true, 'Listando pasta no celular…');
+  try {
+    const result = await window.api.transferList({ path: pathValue });
+    if (!result?.success) {
+      els.transferDevice.textContent = 'Sem dispositivo';
+      transferEntries = [];
+      transferSelected = null;
+      els.transferList.innerHTML = `<li class="transfer-empty">${result?.message || 'Falha ao listar.'}</li>`;
+      setTransferHint(result?.message || 'Conecte o celular via USB com depuração USB.');
+      return;
+    }
+    els.transferPath.value = result.path;
+    els.transferDevice.textContent = result.serial || 'conectado';
+    renderTransferList(result.entries || [], result.path);
+  } catch (err) {
+    setTransferHint(err?.message || 'Erro ao listar pasta.');
+  } finally {
+    setTransferBusy(false);
+    if (restoreBusy && options.keepBusyLabel) {
+      setTransferHint(options.keepBusyLabel);
+    }
+  }
+}
+
+async function pushToDevice() {
+  if (transferBusy) return;
+  setTransferBusy(true, 'Escolhendo arquivos no PC…');
+  try {
+    const picked = await window.api.transferChooseFiles();
+    if (!picked?.success) {
+      setTransferHint('Envio cancelado.');
+      return;
+    }
+    const total = picked.files.length;
+    setTransferHint(`Enviando 1/${total}…`);
+    const result = await window.api.transferPush({
+      remoteDir: els.transferPath.value.trim() || '/sdcard/Download',
+      files: picked.files,
+    });
+    const msg = result?.message || (result?.success ? 'Enviado.' : 'Falha no envio.');
+    if (result?.success) {
+      // Libera busy antes do refresh (evita early-return)
+      setTransferBusy(false);
+      await refreshTransferList({ force: true });
+      setTransferHint(msg);
+      return;
+    }
+    setTransferHint(msg);
+  } catch (err) {
+    setTransferHint(err?.message || 'Falha no envio.');
+  } finally {
+    setTransferBusy(false);
+  }
+}
+
+async function pullFromDevice() {
+  if (transferBusy) return;
+  if (!transferSelected) {
+    setTransferHint('Selecione um arquivo ou pasta (clique na lista).');
+    return;
+  }
+  setTransferBusy(true, 'Escolhendo pasta no PC…');
+  try {
+    const dest = await window.api.transferChooseSaveDir();
+    if (!dest?.success) {
+      setTransferHint('Download cancelado.');
+      return;
+    }
+    setTransferHint(`Baixando ${transferSelected.name}…`);
+    const result = await window.api.transferPull({
+      remotePath: transferSelected.path,
+      localDir: dest.dir,
+    });
+    if (result?.success) {
+      setTransferHint(result.message || `Baixado → ${dest.dir}`);
+      if (window.api.openPath) {
+        await window.api.openPath(dest.dir);
+      }
+    } else {
+      setTransferHint(result?.message || 'Falha no download.');
+    }
+  } catch (err) {
+    setTransferHint(err?.message || 'Falha no download.');
+  } finally {
+    setTransferBusy(false);
+  }
+}
+
+if (els.btnTransferRefresh) {
+  els.btnTransferRefresh.addEventListener('click', () => refreshTransferList());
+}
+if (els.btnTransferUp) {
+  els.btnTransferUp.addEventListener('click', () => {
+    const cur = (els.transferPath.value || '/sdcard').replace(/\/+$/, '');
+    if (cur === '/sdcard' || cur === '/storage/emulated/0' || cur === '/') return;
+    const idx = cur.lastIndexOf('/');
+    els.transferPath.value = idx > 0 ? cur.slice(0, idx) : '/sdcard';
+    refreshTransferList();
+  });
+}
+if (els.btnTransferPush) {
+  els.btnTransferPush.addEventListener('click', () => pushToDevice());
+}
+if (els.btnTransferPull) {
+  els.btnTransferPull.addEventListener('click', () => pullFromDevice());
+}
+if (els.transferQuick) {
+  els.transferQuick.querySelectorAll('[data-path]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (transferBusy) return;
+      els.transferPath.value = btn.getAttribute('data-path');
+      // Atalhos alinhados ao tipo de mídia → aplica filtro correspondente
+      const pathHint = (btn.getAttribute('data-path') || '').toLowerCase();
+      if (pathHint.includes('camera') || pathHint.includes('pictures') || pathHint.includes('dcim')) {
+        transferCategory = 'images';
+      } else if (pathHint.includes('movies')) {
+        transferCategory = 'videos';
+      } else if (pathHint.includes('music')) {
+        transferCategory = 'audio';
+      } else if (pathHint.includes('document')) {
+        transferCategory = 'docs';
+      } else {
+        transferCategory = 'all';
+      }
+      syncTransferCatButtons();
+      refreshTransferList();
+    });
+  });
+}
+if (els.transferCats) {
+  els.transferCats.querySelectorAll('[data-cat]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (transferBusy) return;
+      transferCategory = btn.getAttribute('data-cat') || 'all';
+      syncTransferCatButtons();
+      renderTransferList(transferEntries, transferCurrentPath);
+    });
+  });
+}
+if (els.transferPath) {
+  els.transferPath.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      refreshTransferList();
+    }
+  });
+}
+
+// Auto-refresh leve ao abrir
+setTimeout(() => {
+  if (window.api.transferList) refreshTransferList();
+}, 1200);

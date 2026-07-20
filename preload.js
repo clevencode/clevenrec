@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('api', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  transferDevices: () => ipcRenderer.invoke('transfer-devices'),
+  transferList: (payload) => ipcRenderer.invoke('transfer-list', payload),
+  transferChooseFiles: () => ipcRenderer.invoke('transfer-choose-files'),
+  transferChooseSaveDir: () => ipcRenderer.invoke('transfer-choose-save-dir'),
+  transferPush: (payload) => ipcRenderer.invoke('transfer-push', payload),
+  transferPull: (payload) => ipcRenderer.invoke('transfer-pull', payload),
+  openPath: (target) => ipcRenderer.invoke('open-path', target),
 
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', (event, data) => callback(data)),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', () => callback()),
