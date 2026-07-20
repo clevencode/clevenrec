@@ -1259,8 +1259,11 @@ function appendTransferEntry(entry, currentPath) {
   li.dataset.cat = cat;
   li.setAttribute('role', 'option');
   li.setAttribute('aria-selected', 'false');
+  li.title = entry.isDir
+    ? `${entry.name} · pasta`
+    : `${entry.name} · ${TRANSFER_CAT_LABELS[cat] || 'Outros'}`;
   li.innerHTML = `
-    <span class="xfer-icon">${transferIconFor(entry)}</span>
+    <span class="xfer-icon" aria-hidden="true">${transferIconFor(entry)}</span>
     <span class="xfer-name"></span>
     <span class="xfer-meta"></span>
   `;
