@@ -64,6 +64,20 @@ function readBody(req) {
 
 function startRemoteServer(handlers) {
   const mobileHtmlPath = path.join(__dirname, 'mobile.html');
+  let mobileHtmlCache = null;
+  let mobileHtmlMtimeMs = 0;
+
+  function getMobileHtml() {
+    try {
+      const stat = fs.statSync(mobileHtmlPath);
+      if (mobileHtmlCache && stat.mtimeMs === mobileHtmlMtimeMs) return mobileHtmlCache;
+      mobileHtmlCache = fs.readFileSync(mobileHtmlPath, 'utf8');
+      mobileHtmlMtimeMs = stat.mtimeMs;
+      return mobileHtmlCache;
+    } catch (_) {
+      return mobileHtmlCache || '';
+    }
+  }
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -79,8 +93,11 @@ function startRemoteServer(handlers) {
 
     try {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mobile')) {
-        const html = fs.readFileSync(mobileHtmlPath, 'utf8');
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        const html = getMobileHtml();
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+        });
         return res.end(html);
       }
 

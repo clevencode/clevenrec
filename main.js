@@ -1,12 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec, execFile, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
 const { startRemoteServer } = require('./remote-server');
-
-const PREVIEW_WINDOW_TITLE = 'ClevenRec Preview';
-const WIN_WINDOW_SCRIPT = path.join(__dirname, 'win-window.ps1');
 
 let mainWindow;
 let splashWindow = null;
@@ -21,18 +18,19 @@ let sessionUseObs = true;
 let sessionObsLaunchedByApp = false;
 let sessionObsPid = null;
 let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
-/** Bounds do painel de preview relativos à área de conteúdo da janela (DIP). */
-let previewBoundsRel = { x: 400, y: 22, width: 320, height: 640 };
-let scrcpyDocked = false;
-let scrcpyDockTimer = null;
-let scrcpyDockAttempts = 0;
+let pathCache = null;
+const whichCache = new Map();
 
 function which(cmd) {
+  if (whichCache.has(cmd)) return whichCache.get(cmd);
   try {
     const bin = process.platform === 'win32' ? 'where.exe' : 'which';
     const out = execFileSync(bin, [cmd], { encoding: 'utf8' });
-    return out.split(/\r?\n/).map((s) => s.trim()).find((s) => s && fs.existsSync(s)) || null;
+    const found = out.split(/\r?\n/).map((s) => s.trim()).find((s) => s && fs.existsSync(s)) || null;
+    whichCache.set(cmd, found);
+    return found;
   } catch (_) {
+    whichCache.set(cmd, null);
     return null;
   }
 }
@@ -51,28 +49,29 @@ function findInWingetPackages(exeName, packageHint) {
 
   try {
     const hint = new RegExp(packageHint, 'i');
-    const matches = fs.readdirSync(wingetRoot)
-      .filter((name) => hint.test(name))
-      .flatMap((pkg) => {
-        const pkgDir = path.join(wingetRoot, pkg);
-        const found = [];
-        const walk = (dir, depth = 0) => {
-          if (depth > 3) return;
-          let entries = [];
-          try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
-          for (const entry of entries) {
-            const full = path.join(dir, entry.name);
-            if (entry.isFile() && entry.name.toLowerCase() === exeName.toLowerCase()) {
-              found.push(full);
-            } else if (entry.isDirectory()) {
-              walk(full, depth + 1);
-            }
+    const target = exeName.toLowerCase();
+    const packages = fs.readdirSync(wingetRoot).filter((name) => hint.test(name));
+
+    for (const pkg of packages) {
+      const pkgDir = path.join(wingetRoot, pkg);
+      const stack = [{ dir: pkgDir, depth: 0 }];
+      while (stack.length) {
+        const { dir, depth } = stack.pop();
+        if (depth > 3) continue;
+        let entries = [];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { continue; }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isFile() && entry.name.toLowerCase() === target) {
+            return full;
           }
-        };
-        walk(pkgDir);
-        return found;
-      });
-    return firstExisting(matches);
+          if (entry.isDirectory()) {
+            stack.push({ dir: full, depth: depth + 1 });
+          }
+        }
+      }
+    }
+    return null;
   } catch (_) {
     return null;
   }
@@ -436,10 +435,10 @@ function createSplash() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 980,
-    height: 800,
-    minWidth: 860,
-    minHeight: 680,
+    width: 420,
+    height: 720,
+    minWidth: 380,
+    minHeight: 560,
     resizable: true,
     show: false,
     webPreferences: {
@@ -455,14 +454,6 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
 
-  mainWindow.on('resize', () => {
-    if (isRecording) syncScrcpyPreviewWindow();
-  });
-  mainWindow.on('move', () => {
-    // Com SetParent o filho acompanha; sem embed, reposiciona na tela
-    if (isRecording && !scrcpyDocked) syncScrcpyPreviewWindow();
-  });
-
   mainWindow.once('ready-to-show', () => {
     // splash mínimo ~1.2s para leitura da marca
     const reveal = () => {
@@ -475,164 +466,6 @@ function createWindow() {
     };
     setTimeout(reveal, 1200);
   });
-}
-
-function hwndFromNativeHandle(buf) {
-  if (!buf || !Buffer.isBuffer(buf)) return 0n;
-  if (buf.length >= 8) return buf.readBigUInt64LE(0);
-  if (buf.length >= 4) return BigInt(buf.readUInt32LE(0));
-  return 0n;
-}
-
-function getPreviewLayout() {
-  if (!mainWindow || mainWindow.isDestroyed()) return null;
-  const winBounds = mainWindow.getBounds();
-  const content = mainWindow.getContentBounds();
-  const rel = previewBoundsRel || { x: 0, y: 0, width: 320, height: 640 };
-  const width = Math.max(120, Math.round(rel.width));
-  const height = Math.max(180, Math.round(rel.height));
-  const padX = Math.max(0, content.x - winBounds.x);
-  const padY = Math.max(0, content.y - winBounds.y);
-  const client = {
-    x: Math.round(padX + rel.x),
-    y: Math.round(padY + rel.y),
-    width,
-    height,
-  };
-  const dipScreen = {
-    x: Math.round(content.x + rel.x),
-    y: Math.round(content.y + rel.y),
-    width,
-    height,
-  };
-  const physical = screen.dipToScreenRect(mainWindow, dipScreen);
-  return { client, dipScreen, physical };
-}
-
-function runWinWindowAction(action, extraArgs = []) {
-  return new Promise((resolve) => {
-    if (process.platform !== 'win32' || !fs.existsSync(WIN_WINDOW_SCRIPT)) {
-      resolve({ ok: false, out: 'unsupported' });
-      return;
-    }
-    const args = [
-      '-NoProfile',
-      '-ExecutionPolicy', 'Bypass',
-      '-File', WIN_WINDOW_SCRIPT,
-      '-Action', action,
-      '-Title', PREVIEW_WINDOW_TITLE,
-      ...extraArgs,
-    ];
-    execFile('powershell.exe', args, { windowsHide: true, timeout: 8000 }, (err, stdout) => {
-      const out = String(stdout || '').trim();
-      resolve({ ok: !err && (out === 'ok' || out === '1'), out });
-    });
-  });
-}
-
-function clearScrcpyDockTimer() {
-  if (scrcpyDockTimer) {
-    clearTimeout(scrcpyDockTimer);
-    scrcpyDockTimer = null;
-  }
-}
-
-function resetScrcpyDockState() {
-  clearScrcpyDockTimer();
-  scrcpyDocked = false;
-  scrcpyDockAttempts = 0;
-}
-
-async function syncScrcpyPreviewWindow() {
-  if (!isRecording || !scrcpyProcess) return;
-  const layout = getPreviewLayout();
-  if (!layout) return;
-
-  if (scrcpyDocked) {
-    await runWinWindowAction('move', [
-      '-X', String(layout.client.x),
-      '-Y', String(layout.client.y),
-      '-W', String(layout.client.width),
-      '-H', String(layout.client.height),
-    ]);
-    return;
-  }
-
-  // Ainda não embutido: tenta posicionar pela tela (fallback / pré-embed)
-  await runWinWindowAction('move', [
-    '-X', String(layout.physical.x),
-    '-Y', String(layout.physical.y),
-    '-W', String(layout.physical.width),
-    '-H', String(layout.physical.height),
-  ]);
-}
-
-async function tryEmbedScrcpyWindow() {
-  if (!mainWindow || mainWindow.isDestroyed() || !isRecording) return false;
-  const layout = getPreviewLayout();
-  if (!layout) return false;
-
-  const parent = hwndFromNativeHandle(mainWindow.getNativeWindowHandle());
-  if (!parent) return false;
-
-  const result = await runWinWindowAction('embed', [
-    '-Parent', parent.toString(),
-    '-X', String(layout.client.x),
-    '-Y', String(layout.client.y),
-    '-W', String(layout.client.width),
-    '-H', String(layout.client.height),
-  ]);
-
-  if (result.ok) {
-    scrcpyDocked = true;
-    mainWindow?.webContents.send('preview-state', { live: true, docked: true });
-    return true;
-  }
-  return false;
-}
-
-function scheduleScrcpyDock() {
-  resetScrcpyDockState();
-  mainWindow?.webContents.send('preview-state', { live: true, docked: false });
-
-  const tick = async () => {
-    if (!isRecording || !scrcpyProcess) return;
-    scrcpyDockAttempts += 1;
-
-    const exists = await runWinWindowAction('exists');
-    if (exists.ok) {
-      const embedded = await tryEmbedScrcpyWindow();
-      if (embedded) return;
-      await syncScrcpyPreviewWindow();
-    }
-
-    if (scrcpyDockAttempts < 40) {
-      scrcpyDockTimer = setTimeout(tick, 250);
-    } else {
-      // Fica no modo overlay na tela
-      await syncScrcpyPreviewWindow();
-      mainWindow?.webContents.send('preview-state', { live: true, docked: false });
-    }
-  };
-
-  scrcpyDockTimer = setTimeout(tick, 400);
-}
-
-function buildScrcpyWindowArgs() {
-  const layout = getPreviewLayout();
-  const args = [
-    '--window-title', PREVIEW_WINDOW_TITLE,
-    '--window-borderless',
-  ];
-  if (layout) {
-    args.push(
-      '--window-x', String(layout.physical.x),
-      '--window-y', String(layout.physical.y),
-      '--window-width', String(layout.physical.width),
-      '--window-height', String(layout.physical.height),
-    );
-  }
-  return args;
 }
 
 function normalizeAudioSource(settings = {}, fallback = config.audioSource || 'pc-desktop') {
@@ -768,8 +601,9 @@ function applySettings(settings = {}) {
 }
 
 function runAdb(adbPath, args) {
+  const argv = Array.isArray(args) ? args : String(args).match(/(?:[^\s"]+|"[^"]*")+/g)?.map((s) => s.replace(/^"|"$/g, '')) || [];
   return new Promise((resolve) => {
-    exec(`"${adbPath}" ${args}`, { timeout: 15000 }, (err, stdout, stderr) => {
+    execFile(adbPath, argv, { timeout: 15000, windowsHide: true }, (err, stdout, stderr) => {
       resolve({
         ok: !err,
         stdout: (stdout || '').toString(),
@@ -796,10 +630,16 @@ function binaryLooksAvailable(binPath) {
   if (binPath.includes(path.sep) || binPath.includes('/') || binPath.includes('\\')) {
     return fs.existsSync(binPath);
   }
-  return Boolean(which(binPath) || which(`${binPath}.exe`));
+  // which() já está em cache — evita varredura duplicada no PATH
+  return Boolean(which(binPath) || (process.platform === 'win32' && which(`${binPath}.exe`)));
 }
 
-function ensureRuntimePaths() {
+function ensureRuntimePaths({ force = false } = {}) {
+  if (pathCache && !force) {
+    if (!config.recordDir) config.recordDir = pathCache.recordDir;
+    return pathCache;
+  }
+
   config.scrcpyPath = resolveScrcpyPath();
   config.ffmpegPath = resolveFfmpegPath();
   config.adbPath = resolveAdbPath(config.scrcpyPath);
@@ -815,13 +655,15 @@ function ensureRuntimePaths() {
   if (!config.recordVideoPath) {
     config.recordVideoPath = path.join(config.recordDir, 'screenvid.mkv');
   }
-  return {
+
+  pathCache = {
     scrcpyPath: config.scrcpyPath,
     ffmpegPath: config.ffmpegPath,
     adbPath: config.adbPath,
     obsPath: config.obsPath,
     recordDir: config.recordDir,
   };
+  return pathCache;
 }
 
 function validateRuntimeBinaries({ needFfmpeg = false } = {}) {
@@ -877,12 +719,12 @@ async function safeIpc(handler, fallbackMessage) {
 }
 
 async function detectDeviceWifiIp(adbPath, serial) {
-  const prefix = serial ? `-s "${serial}" ` : '';
+  const base = serial ? ['-s', serial] : [];
   const scripts = [
-    `${prefix}shell "ip -f inet addr show wlan0"`,
-    `${prefix}shell "ip -f inet addr show wlan1"`,
-    `${prefix}shell getprop dhcp.wlan0.ipaddress`,
-    `${prefix}shell "ip route | grep wlan"`,
+    [...base, 'shell', 'ip -f inet addr show wlan0'],
+    [...base, 'shell', 'ip -f inet addr show wlan1'],
+    [...base, 'shell', 'getprop', 'dhcp.wlan0.ipaddress'],
+    [...base, 'shell', 'ip route | grep wlan'],
   ];
 
   for (const cmd of scripts) {
@@ -907,10 +749,10 @@ async function activateConnection(connection, wifiAddress = '') {
   }
 
   if (mode === 'usb') {
-    await runAdb(adbPath, 'usb');
-    await new Promise((r) => setTimeout(r, 1200));
+    await runAdb(adbPath, ['usb']);
+    await sleep(1200);
 
-    const listed = await runAdb(adbPath, 'devices');
+    const listed = await runAdb(adbPath, ['devices']);
     const usbDevices = parseAdbDevices(listed.stdout).filter((d) => !d.isWifi);
 
     if (usbDevices.length === 0) {
@@ -930,14 +772,14 @@ async function activateConnection(connection, wifiAddress = '') {
   }
 
   // --- Wi‑Fi / ADB TCP ---
-  let listed = await runAdb(adbPath, 'devices');
+  let listed = await runAdb(adbPath, ['devices']);
   let devices = parseAdbDevices(listed.stdout);
   let usbDevices = devices.filter((d) => !d.isWifi);
 
   // Se ainda há USB, liga o daemon em TCP (necessário na 1ª vez)
   if (usbDevices.length > 0) {
     const serial = usbDevices[0].serial;
-    const tcpip = await runAdb(adbPath, `-s "${serial}" tcpip 5555`);
+    const tcpip = await runAdb(adbPath, ['-s', serial, 'tcpip', '5555']);
     const tcpOut = `${tcpip.stdout} ${tcpip.stderr}`;
     if (!/restarting|5555/i.test(tcpOut) && tcpip.error) {
       return {
@@ -946,7 +788,7 @@ async function activateConnection(connection, wifiAddress = '') {
         message: `Falha ao ativar ADB Wi‑Fi (tcpip 5555).\n\n${tcpOut.trim() || 'Conecte o USB uma vez para autorizar.'}`
       };
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(1500);
 
     if (!config.wifiAddress) {
       const ip = await detectDeviceWifiIp(adbPath, serial);
@@ -957,7 +799,7 @@ async function activateConnection(connection, wifiAddress = '') {
   let targetHost = config.wifiAddress;
   if (!targetHost) {
     // já pode existir um device wifi conectado
-    listed = await runAdb(adbPath, 'devices');
+    listed = await runAdb(adbPath, ['devices']);
     const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
     if (wifiDevices.length > 0) {
       return {
@@ -976,7 +818,7 @@ async function activateConnection(connection, wifiAddress = '') {
   }
 
   const target = targetHost.includes(':') ? targetHost : `${targetHost}:5555`;
-  const connect = await runAdb(adbPath, `connect ${target}`);
+  const connect = await runAdb(adbPath, ['connect', target]);
   const connectOut = `${connect.stdout} ${connect.stderr}`;
   if (!/connected|already connected/i.test(connectOut)) {
     return {
@@ -987,7 +829,7 @@ async function activateConnection(connection, wifiAddress = '') {
     };
   }
 
-  listed = await runAdb(adbPath, 'devices');
+  listed = await runAdb(adbPath, ['devices']);
   const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
 
   return {
@@ -1115,10 +957,15 @@ async function startSession(options = {}) {
     }
 
     const useWifi = config.connection === 'wifi';
-    const adbPath = getAdbPath();
-    const listed = await runAdb(adbPath, 'devices');
-    const devices = parseAdbDevices(listed.stdout);
-    const matching = devices.filter((d) => (useWifi ? d.isWifi : !d.isWifi));
+    let matching = (activated.devices || []).map((serial) => ({
+      serial,
+      isWifi: String(serial).includes(':'),
+    })).filter((d) => (useWifi ? d.isWifi : !d.isWifi));
+
+    if (matching.length === 0) {
+      const listed = await runAdb(getAdbPath(), ['devices']);
+      matching = parseAdbDevices(listed.stdout).filter((d) => (useWifi ? d.isWifi : !d.isWifi));
+    }
 
     if (matching.length === 0) {
       return {
@@ -1191,7 +1038,7 @@ async function startSession(options = {}) {
       scrcpyArgs.push('--max-size', config.maxSize);
     }
     scrcpyArgs.push('--video-bit-rate', config.bitrate);
-    scrcpyArgs.push(...buildScrcpyWindowArgs());
+    scrcpyArgs.push('--window-title', 'ClevenRec');
 
     if (sessionMode === 'record') {
       config.recordVideoPath = buildRecordPath(config.recordDir, config.format);
@@ -1201,6 +1048,7 @@ async function startSession(options = {}) {
     }
 
     let scrcpyErrorOutput = '';
+    const SCRCPY_LOG_CAP = 8000;
     scrcpyStartTime = Date.now();
     scrcpyProcess = spawn(config.scrcpyPath, scrcpyArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -1210,6 +1058,9 @@ async function startSession(options = {}) {
     const onScrcpyLog = (d) => {
       const text = d.toString();
       scrcpyErrorOutput += text;
+      if (scrcpyErrorOutput.length > SCRCPY_LOG_CAP) {
+        scrcpyErrorOutput = scrcpyErrorOutput.slice(-SCRCPY_LOG_CAP);
+      }
       if (text.includes('Recording started') || text.includes('Texture:')) {
         scrcpyStartTime = Date.now();
       }
@@ -1239,7 +1090,6 @@ async function startSession(options = {}) {
     });
 
     isRecording = true;
-    scheduleScrcpyDock();
     const payload = {
       mode: sessionMode,
       audioSource: sessionAudioSource,
@@ -1336,9 +1186,7 @@ async function stopEverything() {
   }
 
   isRecording = false;
-  resetScrcpyDockState();
   mainWindow?.webContents.send('recording-stopped');
-  mainWindow?.webContents.send('preview-state', { live: false, docked: false });
 
   if (!wasRecord) {
     if (shouldCloseObs) await closeObsIfLaunchedByApp();
@@ -1384,7 +1232,6 @@ async function stopEverything() {
 
 function mergeVideoAudio(videoPath, audioPath, outputPath) {
   return new Promise((resolve) => {
-    const fs = require('fs');
     if (!fs.existsSync(videoPath)) {
       return resolve({ success: false, message: `Vídeo não encontrado: ${videoPath}` });
     }
@@ -1430,25 +1277,8 @@ ipcMain.handle('choose-folder', async () => {
   });
   if (!result.canceled) {
     config.recordDir = result.filePaths[0];
+    if (pathCache) pathCache.recordDir = config.recordDir;
     return { dir: config.recordDir, preview: buildRecordPath(config.recordDir) };
   }
   return null;
-});
-
-ipcMain.handle('set-preview-bounds', (_event, bounds = {}) => {
-  const x = Number(bounds.x);
-  const y = Number(bounds.y);
-  const width = Number(bounds.width);
-  const height = Number(bounds.height);
-  if (![x, y, width, height].every((n) => Number.isFinite(n))) {
-    return { success: false };
-  }
-  previewBoundsRel = {
-    x: Math.max(0, Math.round(x)),
-    y: Math.max(0, Math.round(y)),
-    width: Math.max(80, Math.round(width)),
-    height: Math.max(120, Math.round(height)),
-  };
-  if (isRecording) syncScrcpyPreviewWindow();
-  return { success: true, bounds: previewBoundsRel };
 });

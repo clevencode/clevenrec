@@ -45,10 +45,6 @@ const els = {
   remoteUrl: document.getElementById('remoteUrl'),
   remoteQr: document.getElementById('remoteQr'),
   btnCopyRemote: document.getElementById('btnCopyRemote'),
-  previewPane: document.getElementById('previewPane'),
-  previewStage: document.getElementById('previewStage'),
-  previewBadge: document.getElementById('previewBadge'),
-  previewIdleSub: document.getElementById('previewIdleSub'),
 };
 
 let mode = 'record';
@@ -410,43 +406,9 @@ function setControlsEnabled(enabled) {
   syncScreenUI();
 }
 
-function setPreviewLive(live, docked = false) {
-  if (els.previewPane) els.previewPane.classList.toggle('is-live', !!live);
-  if (els.previewBadge) {
-    if (!live) els.previewBadge.textContent = 'Aguardando';
-    else if (docked) els.previewBadge.textContent = 'Ao vivo';
-    else els.previewBadge.textContent = 'Abrindo…';
-  }
-  if (els.previewIdleSub) {
-    els.previewIdleSub.textContent = live
-      ? 'Abrindo o espelho neste painel…'
-      : 'Ao iniciar, o espelho aparece neste painel.';
-  }
-}
-
-function reportPreviewBounds() {
-  if (!els.previewStage || !window.api?.setPreviewBounds) return;
-  const rect = els.previewStage.getBoundingClientRect();
-  if (rect.width < 40 || rect.height < 40) return;
-  window.api.setPreviewBounds({
-    x: Math.round(rect.left),
-    y: Math.round(rect.top),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  });
-}
-
-let previewBoundsTimer = null;
-function scheduleReportPreviewBounds() {
-  if (previewBoundsTimer) clearTimeout(previewBoundsTimer);
-  previewBoundsTimer = setTimeout(reportPreviewBounds, 60);
-}
-
 function setActiveState(active, info = {}) {
   isActive = active;
   setControlsEnabled(!active);
-  setPreviewLive(active, false);
-  scheduleReportPreviewBounds();
 
   if (active) {
     els.statusPill.classList.add('active');
@@ -739,21 +701,6 @@ if (window.api.onStatusText) {
   });
 }
 
-if (window.api.onPreviewState) {
-  window.api.onPreviewState((data) => {
-    setPreviewLive(!!data?.live, !!data?.docked);
-  });
-}
-
-window.addEventListener('resize', scheduleReportPreviewBounds);
-if (els.previewStage && typeof ResizeObserver !== 'undefined') {
-  const ro = new ResizeObserver(() => scheduleReportPreviewBounds());
-  ro.observe(els.previewStage);
-}
-requestAnimationFrame(() => scheduleReportPreviewBounds());
-setTimeout(scheduleReportPreviewBounds, 300);
-setTimeout(scheduleReportPreviewBounds, 1200);
-
 els.btnCopyRemote.addEventListener('click', async () => {
   const url = els.remoteUrl.textContent;
   if (!url || url.includes('…') || url.includes('falhou') || url.includes('indisponível')) return;
@@ -774,7 +721,7 @@ function showRemoteInfo(info) {
     return;
   }
   els.remoteUrl.textContent = url;
-  els.remoteQr.src = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' + encodeURIComponent(url);
+  els.remoteQr.src = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent(url);
 }
 
 window.api.getStatus().then((status) => {
