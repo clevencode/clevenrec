@@ -45,6 +45,13 @@ const els = {
   remoteUrl: document.getElementById('remoteUrl'),
   remoteQr: document.getElementById('remoteQr'),
   btnCopyRemote: document.getElementById('btnCopyRemote'),
+  updateVersion: document.getElementById('updateVersion'),
+  updateStatus: document.getElementById('updateStatus'),
+  updateProgress: document.getElementById('updateProgress'),
+  updateProgressBar: document.getElementById('updateProgressBar'),
+  btnCheckUpdate: document.getElementById('btnCheckUpdate'),
+  btnInstallUpdate: document.getElementById('btnInstallUpdate'),
+  btnOpenReleases: document.getElementById('btnOpenReleases'),
 };
 
 let mode = 'record';
@@ -902,6 +909,70 @@ els.btnCopyRemote.addEventListener('click', async () => {
   }
 });
 
+const RELEASES_URL = 'https://github.com/clevencode/clevenrec/releases';
+let updateUiState = { currentVersion: '—' };
+
+function renderUpdateUI(state = {}) {
+  updateUiState = { ...updateUiState, ...state };
+  const current = updateUiState.currentVersion || '—';
+  const available = updateUiState.version && updateUiState.version !== current ? updateUiState.version : null;
+  els.updateVersion.textContent = available
+    ? `Versão ${current} → ${available}`
+    : `Versão ${current}`;
+
+  if (updateUiState.message) {
+    els.updateStatus.textContent = updateUiState.message;
+  }
+
+  const isDownloading = updateUiState.status === 'downloading';
+  els.updateProgress.classList.toggle('is-visible', isDownloading);
+  if (isDownloading) {
+    els.updateProgressBar.style.width = `${updateUiState.percent || 0}%`;
+  } else {
+    els.updateProgressBar.style.width = '0%';
+  }
+
+  const canInstall = updateUiState.status === 'downloaded';
+  els.btnInstallUpdate.classList.toggle('is-visible', canInstall);
+
+  const isBusy = updateUiState.status === 'checking' || updateUiState.status === 'downloading';
+  els.btnCheckUpdate.disabled = isBusy;
+  els.btnCheckUpdate.textContent = isBusy ? 'Verificando…' : 'Verificar';
+}
+
+if (window.api.onUpdateStatus) {
+  window.api.onUpdateStatus((state) => renderUpdateUI(state));
+}
+
+els.btnCheckUpdate.addEventListener('click', async () => {
+  renderUpdateUI({ status: 'checking', message: 'Verificando atualizações…' });
+  try {
+    const result = await window.api.checkForUpdates();
+    if (result?.status) renderUpdateUI(result.status);
+  } catch (error) {
+    renderUpdateUI({
+      status: 'error',
+      message: error?.message || 'Falha ao verificar atualização.',
+    });
+  }
+});
+
+els.btnInstallUpdate.addEventListener('click', async () => {
+  els.btnInstallUpdate.disabled = true;
+  els.btnInstallUpdate.textContent = 'Reiniciando…';
+  try {
+    await window.api.installUpdate();
+  } catch (error) {
+    els.updateStatus.textContent = error?.message || 'Falha ao instalar atualização.';
+    els.btnInstallUpdate.disabled = false;
+    els.btnInstallUpdate.textContent = 'Instalar e reiniciar';
+  }
+});
+
+els.btnOpenReleases.addEventListener('click', () => {
+  window.api.openExternal(RELEASES_URL);
+});
+
 function showRemoteInfo(info) {
   const url = info?.primaryUrl || (info?.urls && info.urls[0]);
   if (!url) {
@@ -971,3 +1042,13 @@ window.api.getStatus().then((status) => {
 setTimeout(() => {
   window.api.getRemoteInfo().then(showRemoteInfo).catch(() => {});
 }, 800);
+
+Promise.all([
+  window.api.getAppVersion().catch(() => null),
+  window.api.getUpdateStatus().catch(() => null),
+]).then(([version, status]) => {
+  renderUpdateUI({
+    ...(status || {}),
+    currentVersion: version || status?.currentVersion || '—',
+  });
+});

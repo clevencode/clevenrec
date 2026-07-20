@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, exec, execFile, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
+const { autoUpdater } = require('electron-updater');
 const { startRemoteServer } = require('./remote-server');
 
 let mainWindow;
@@ -20,6 +21,136 @@ let sessionObsPid = null;
 let remoteInfo = { urls: [], primaryUrl: null, port: 8787 };
 let pathCache = null;
 const whichCache = new Map();
+const RELEASES_URL = 'https://github.com/clevencode/clevenrec/releases';
+
+function isPortableBuild() {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return true;
+  try {
+    return /-portable(?:\.exe)?$/i.test(app.getPath('exe'));
+  } catch (_) {
+    return false;
+  }
+}
+
+let updateState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  version: null,
+  percent: 0,
+  message: '',
+  isPortable: false,
+};
+
+function sendUpdateStatus() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('update-status', { ...updateState });
+}
+
+function setUpdateStatus(patch) {
+  updateState = { ...updateState, ...patch };
+  sendUpdateStatus();
+}
+
+function initAutoUpdater() {
+  updateState.isPortable = isPortableBuild();
+  updateState.currentVersion = app.getVersion();
+
+  if (!app.isPackaged) {
+    setUpdateStatus({
+      status: 'dev',
+      message: 'Atualizações automáticas ficam ativas na versão instalada (NSIS).',
+    });
+    return;
+  }
+
+  if (isPortableBuild()) {
+    setUpdateStatus({
+      status: 'unsupported',
+      message: 'Versão portable: baixe o novo instalador em GitHub Releases.',
+    });
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('checking-for-update', () => {
+    setUpdateStatus({ status: 'checking', message: 'Verificando atualizações…', percent: 0 });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    setUpdateStatus({
+      status: 'downloading',
+      version: info.version,
+      message: `Baixando ${info.version}…`,
+      percent: 0,
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    setUpdateStatus({
+      status: 'not-available',
+      message: 'Você já está na versão mais recente.',
+      percent: 0,
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.round(progress.percent || 0);
+    setUpdateStatus({
+      status: 'downloading',
+      message: `Baixando ${updateState.version || 'atualização'}… ${percent}%`,
+      percent,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    setUpdateStatus({
+      status: 'downloaded',
+      version: info.version,
+      message: `Versão ${info.version} pronta para instalar.`,
+      percent: 100,
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    setUpdateStatus({
+      status: 'error',
+      message: error?.message || 'Falha ao verificar atualização.',
+    });
+  });
+}
+
+async function checkForAppUpdates() {
+  updateState.currentVersion = app.getVersion();
+
+  if (!app.isPackaged) {
+    setUpdateStatus({
+      status: 'dev',
+      message: 'Atualizações automáticas ficam ativas na versão instalada (NSIS).',
+    });
+    return { success: false, status: { ...updateState } };
+  }
+
+  if (isPortableBuild()) {
+    setUpdateStatus({
+      status: 'unsupported',
+      message: 'Versão portable: baixe o novo instalador em GitHub Releases.',
+    });
+    return { success: false, status: { ...updateState } };
+  }
+
+  try {
+    await autoUpdater.checkForUpdates();
+    return { success: true, status: { ...updateState } };
+  } catch (error) {
+    setUpdateStatus({
+      status: 'error',
+      message: error?.message || 'Não foi possível verificar atualizações.',
+    });
+    return { success: false, status: { ...updateState } };
+  }
+}
 
 function which(cmd) {
   if (whichCache.has(cmd)) return whichCache.get(cmd);
@@ -877,6 +1008,7 @@ app.whenReady().then(async () => {
   initRuntimePaths();
   createSplash();
   createWindow();
+  initAutoUpdater();
   try {
     remoteInfo = await startRemoteServer({
       getStatus: getStatusPayload,
@@ -1296,4 +1428,29 @@ ipcMain.handle('choose-folder', async () => {
     return { dir: config.recordDir, preview: buildRecordPath(config.recordDir) };
   }
   return null;
+});
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('get-update-status', () => ({
+  ...updateState,
+  currentVersion: app.getVersion(),
+}));
+
+ipcMain.handle('check-for-updates', async () => checkForAppUpdates());
+
+ipcMain.handle('install-update', () => {
+  if (updateState.status !== 'downloaded') {
+    return { success: false, message: 'Nenhuma atualização pronta para instalar.' };
+  }
+  autoUpdater.quitAndInstall(false, true);
+  return { success: true };
+});
+
+ipcMain.handle('open-external', async (_event, url) => {
+  if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+    return { success: false, message: 'URL inválida.' };
+  }
+  await shell.openExternal(url);
+  return { success: true };
 });

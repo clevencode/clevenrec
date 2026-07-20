@@ -8,9 +8,15 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   activateConnection: (payload) => ipcRenderer.invoke('activate-connection', payload),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', (event, data) => callback(data)),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', () => callback()),
   onRecordingError: (callback) => ipcRenderer.on('recording-error', (event, msg) => callback(msg)),
   onStatusText: (callback) => ipcRenderer.on('status-text', (event, text) => callback(text)),
+  onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, data) => callback(data)),
 });

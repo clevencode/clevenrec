@@ -927,6 +927,57 @@
     @media (max-width: 520px) {
       .output-grid { grid-template-columns: 1fr; }
     }
+
+    .update-version {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .update-status {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.45;
+      min-height: 16px;
+      margin-bottom: 10px;
+    }
+
+    .update-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .update-progress {
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+      margin: 0 0 10px;
+      display: none;
+    }
+
+    .update-progress.is-visible {
+      display: block;
+    }
+
+    .update-progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.2s ease;
+    }
+
+    #btnInstallUpdate {
+      display: none;
+    }
+
+    #btnInstallUpdate.is-visible {
+      display: inline-flex;
+    }
   </style>
 </head>
 <body>
@@ -1102,6 +1153,22 @@
               </div>
               <button class="btn-ghost" id="btnCopyRemote" type="button">Copiar link</button>
             </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="remote-details" id="updateCard">
+        <summary>Atualizações</summary>
+        <div class="remote-body">
+          <div class="update-version" id="updateVersion">Versão —</div>
+          <div class="update-status" id="updateStatus">Toque em verificar para buscar novidades.</div>
+          <div class="update-progress" id="updateProgress">
+            <span id="updateProgressBar"></span>
+          </div>
+          <div class="update-actions">
+            <button class="btn-ghost" id="btnCheckUpdate" type="button">Verificar</button>
+            <button class="btn-ghost" id="btnInstallUpdate" type="button">Instalar e reiniciar</button>
+            <button class="btn-ghost" id="btnOpenReleases" type="button">GitHub Releases</button>
           </div>
         </div>
       </details>
