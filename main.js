@@ -419,7 +419,7 @@ function createSplash() {
     alwaysOnTop: true,
     center: true,
     show: false,
-    backgroundColor: '#0c0e12',
+    backgroundColor: '#14171d',
     icon: APP_ICON,
     webPreferences: {
       nodeIntegration: false,
@@ -435,10 +435,10 @@ function createSplash() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 420,
-    height: 720,
-    minWidth: 380,
-    minHeight: 560,
+    width: 480,
+    height: 820,
+    minWidth: 420,
+    minHeight: 640,
     resizable: true,
     show: false,
     webPreferences: {
@@ -448,7 +448,7 @@ function createWindow() {
     },
     autoHideMenuBar: true,
     title: 'ClevenRec',
-    backgroundColor: '#0c0e12',
+    backgroundColor: '#14171d',
     icon: APP_ICON
   });
 

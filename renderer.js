@@ -721,7 +721,7 @@ function showRemoteInfo(info) {
     return;
   }
   els.remoteUrl.textContent = url;
-  els.remoteQr.src = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent(url);
+  els.remoteQr.src = 'https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=' + encodeURIComponent(url);
 }
 
 window.api.getStatus().then((status) => {
