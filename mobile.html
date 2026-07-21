@@ -6,734 +6,223 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0c0e12">
   <title>ClevenRec Mobile</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --text: #e6e9ef;
-      --muted: #8a93a3;
-      --accent: #2fd39a;
-      --danger: #ff4d57;
-      --warn: #e8a838;
-      --key-radius: 10px;
-      --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+      --bg: #0c0e12;
+      --card: #141820;
+      --line: rgba(255,255,255,0.1);
+      --text: #eef1f6;
+      --muted: #8b93a7;
+      --accent: #3ddea8;
+      --danger: #ff5c5c;
     }
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Barlow', system-ui, sans-serif;
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      background: radial-gradient(ellipse at top, rgba(61,222,168,.1), transparent 55%), var(--bg);
       color: var(--text);
       min-height: 100dvh;
-      background:
-        radial-gradient(ellipse 60% 50% at 50% 20%, #1a1f28 0%, #0c0e12 70%);
-      padding: 16px 14px calc(22px + env(safe-area-inset-bottom));
+      padding: 20px 18px calc(24px + env(safe-area-inset-bottom));
     }
-
-    .app {
-      max-width: 480px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      padding: 16px 14px 14px;
-      position: relative;
-      border-radius: 18px;
-      background:
-        linear-gradient(165deg, #2c333e 0%, #1a1e25 42%, #14171d 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.12),
-        inset 0 -2px 6px rgba(0,0,0,0.45),
-        0 12px 36px rgba(0,0,0,0.45);
-      overflow: hidden;
+    h1 { font-size: 26px; letter-spacing: -0.04em; }
+    h1 span { color: var(--accent); }
+    .sub { color: var(--muted); font-size: 13px; margin: 4px 0 18px; }
+    .status {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--card);
+      font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 16px;
     }
-
-    .app::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background-image: var(--noise);
-      opacity: 0.045;
-      pointer-events: none;
-      mix-blend-mode: overlay;
+    .status.on { color: var(--danger); border-color: rgba(255,92,92,.4); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+    .status.on .dot { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .modes button {
+      border: 1px solid var(--line); background: var(--card); color: var(--muted);
+      padding: 14px; border-radius: 12px; font: inherit; font-weight: 600; font-size: 14px;
     }
-
-    .app > * { position: relative; z-index: 1; }
-
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-radius: 16px;
-      background: linear-gradient(180deg, #2a3039 0%, #1e232b 100%);
-      box-shadow:
-        0 1px 0 rgba(255,255,255,0.08),
-        0 6px 14px rgba(0,0,0,0.35),
-        inset 0 1px 0 rgba(255,255,255,0.1),
-        inset 0 -1px 0 rgba(0,0,0,0.4);
-      border: 1px solid rgba(0,0,0,0.35);
+    .modes button.active {
+      color: var(--accent); border-color: rgba(61,222,168,.35);
+      background: rgba(61,222,168,.12);
     }
-
-    .brand-name {
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-      text-shadow: 0 1px 0 rgba(255,255,255,0.12), 0 -1px 0 rgba(0,0,0,0.5);
-    }
-
-    .brand-name span {
-      color: var(--accent);
-      text-shadow: 0 0 12px rgba(47, 211, 154, 0.35);
-    }
-
-    .brand-sub {
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      margin-top: 2px;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 12px 7px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-      background: linear-gradient(180deg, #151920 0%, #0c0f13 100%);
-      border: 1px solid rgba(0,0,0,0.5);
-      box-shadow:
-        inset 0 2px 4px rgba(0,0,0,0.65),
-        inset 0 -1px 0 rgba(255,255,255,0.06),
-        0 1px 0 rgba(255,255,255,0.05);
-      white-space: nowrap;
-    }
-
-    .status-pill.on { color: #ffb4b8; }
-
-    .dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #6a7385, #2a3140 70%);
-      box-shadow:
-        inset 0 1px 2px rgba(255,255,255,0.25),
-        0 0 0 2px #0a0c10,
-        0 0 0 3px rgba(255,255,255,0.06);
-      flex-shrink: 0;
-    }
-
-    .status-pill.on .dot {
-      background: radial-gradient(circle at 35% 30%, #ff9aa0, var(--danger) 65%);
-      box-shadow:
-        inset 0 1px 2px rgba(255,255,255,0.45),
-        0 0 0 2px #0a0c10,
-        0 0 10px rgba(255, 77, 87, 0.85);
-    }
-
-    .section-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #6f7888;
-      margin-bottom: 8px;
-    }
-
-    .setup-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-    }
-
-    .mode-switch {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      padding: 7px;
-      border-radius: 14px;
-      background: linear-gradient(180deg, #080a0e 0%, #12171f 100%);
-      border: 1px solid rgba(0,0,0,0.65);
-      box-shadow:
-        inset 0 4px 8px rgba(0,0,0,0.8),
-        inset 0 -1px 0 rgba(255,255,255,0.04),
-        0 1px 0 rgba(255,255,255,0.05);
-    }
-
-    .mode-switch.three { grid-template-columns: 1fr 1fr 1fr; }
-    .mode-switch.one { grid-template-columns: 1fr; }
-
-    .mode-btn {
-      position: relative;
-      isolation: isolate;
-      overflow: hidden;
-      border: 1px solid #07090c;
-      color: #b8c0ce;
-      padding: 20px 8px 12px;
-      min-height: 48px;
-      border-radius: 11px;
-      font: inherit;
-      font-weight: 700;
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: transform 0.06s ease, box-shadow 0.06s ease, color 0.12s ease, filter 0.12s ease;
-      background:
-        radial-gradient(ellipse 120% 80% at 50% -10%, rgba(255,255,255,0.18) 0%, transparent 45%),
-        linear-gradient(180deg, #5a6476 0%, #3f4858 14%, #2e3644 48%, #1c222c 88%, #141920 100%);
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.38),
-        inset 0 -3px 5px rgba(0,0,0,0.45),
-        inset 2px 0 2px rgba(255,255,255,0.07),
-        inset -2px 0 3px rgba(0,0,0,0.28),
-        0 1px 0 #7a8496,
-        0 2px 0 #4a5363,
-        0 5px 0 #0a0c10,
-        0 8px 16px rgba(0,0,0,0.5);
-      text-shadow: 0 1px 0 rgba(0,0,0,0.65);
-    }
-
-    .mode-btn::before {
-      content: '';
-      position: absolute;
-      top: 2px;
-      left: 4px;
-      right: 4px;
-      height: 38%;
-      border-radius: 8px 8px 45% 45%;
-      background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.04) 55%, transparent 100%);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .mode-btn::after {
-      content: '';
-      position: absolute;
-      top: 7px;
-      left: 50%;
-      width: 6px;
-      height: 6px;
-      margin-left: -3px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #3a4250, #12161c 72%);
-      box-shadow:
-        inset 0 1px 2px rgba(0,0,0,0.75),
-        0 0 0 1.5px #0a0c10,
-        0 0 0 2.5px rgba(255,255,255,0.06);
-      opacity: 0.95;
-      z-index: 1;
-      transition: background 0.15s ease, box-shadow 0.15s ease;
-    }
-
-    .mode-btn:active:not(:disabled),
-    .mode-btn.active {
-      transform: translateY(4px);
-      color: var(--accent);
-      padding-top: 21px;
-      padding-bottom: 11px;
-      background:
-        radial-gradient(ellipse 100% 60% at 50% 100%, rgba(47,211,154,0.12) 0%, transparent 55%),
-        linear-gradient(180deg, #121816 0%, #0e1311 45%, #0a100e 100%);
-      box-shadow:
-        inset 0 6px 14px rgba(0,0,0,0.92),
-        inset 0 2px 0 rgba(0,0,0,0.55),
-        inset 0 0 0 1px rgba(47, 211, 154, 0.32),
-        0 1px 0 rgba(255,255,255,0.04),
-        0 0 0 1px #07090c;
-      text-shadow: 0 0 14px rgba(47, 211, 154, 0.5);
-    }
-
-    .mode-btn.active::before,
-    .mode-btn:active:not(:disabled)::before {
-      opacity: 0.25;
-    }
-
-    .mode-btn.active::after,
-    .mode-btn:active:not(:disabled)::after {
-      background: radial-gradient(circle at 35% 28%, #b8ffe8, var(--accent) 62%, #0d6b4a 100%);
-      box-shadow:
-        inset 0 1px 1px rgba(255,255,255,0.65),
-        0 0 0 1.5px #0a0c10,
-        0 0 10px rgba(47, 211, 154, 1),
-        0 0 18px rgba(47, 211, 154, 0.55);
-    }
-
-    .mode-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
     .mode-hint {
-      text-align: center;
-      font-size: 11px;
-      color: var(--muted);
-      line-height: 1.4;
-      min-height: 28px;
-      margin-top: 8px;
+      text-align: center; font-size: 12px; color: var(--muted);
+      margin: -6px 0 14px; line-height: 1.35;
     }
-
     .card {
-      background: linear-gradient(180deg, #262c36 0%, #1c2129 100%);
-      border: 1px solid rgba(0,0,0,0.45);
-      border-radius: 14px;
-      padding: 14px 14px 12px;
-      box-shadow:
-        0 1px 0 rgba(255,255,255,0.06),
-        0 4px 12px rgba(0,0,0,0.28),
-        inset 0 1px 0 rgba(255,255,255,0.06);
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 14px; padding: 14px; margin-bottom: 12px;
     }
-
-    .card-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #6f7888;
-      margin-bottom: 12px;
-    }
-
-    .card-title::before {
-      content: '';
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #5a6475, #2a3140);
-      box-shadow: inset 0 1px 1px rgba(255,255,255,0.25), 0 0 0 1px rgba(0,0,0,0.4);
-      flex-shrink: 0;
-    }
-
-    .card-hint {
-      font-size: 11px;
-      color: var(--muted);
-      line-height: 1.4;
-      margin: -4px 0 12px;
-    }
-
-    .field { margin-bottom: 10px; }
-    .field:last-child { margin-bottom: 0; }
-
-    .field label,
-    .label {
-      display: block;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
-    .row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    select, input[type="text"] {
-      width: 100%;
-      appearance: none;
-      color: var(--text);
-      border-radius: 11px;
-      padding: 10px 12px;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      outline: none;
-      background: linear-gradient(180deg, #151920 0%, #0e1116 100%);
-      border: 1px solid rgba(0,0,0,0.5);
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        inset 0 -1px 0 rgba(255,255,255,0.04);
-    }
-
+    .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
     select {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238a93a3' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
-      padding-right: 32px;
-      margin-bottom: 10px;
+      width: 100%; appearance: none; background: #1a2030; color: var(--text);
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px; font: inherit; margin-bottom: 10px;
     }
-
-    select:last-child { margin-bottom: 0; }
-
-    select:focus, input[type="text"]:focus {
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        0 0 0 2px rgba(47, 211, 154, 0.28);
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .check { display: none; }
+    .toggle-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .toggle-row {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #1a2030;
     }
-
-    select:disabled, input:disabled { opacity: 0.45; }
-
+    .toggle-row.is-on { border-color: rgba(61,222,168,.35); background: rgba(61,222,168,.1); }
+    .toggle-copy { flex: 1; min-width: 0; }
+    .toggle-title { font-size: 14px; font-weight: 650; margin-bottom: 2px; }
+    .toggle-desc { font-size: 12px; color: var(--muted); line-height: 1.35; }
+    .toggle-switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+    .toggle-switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+    .toggle-track {
+      display: block; width: 100%; height: 100%; border-radius: 999px;
+      background: #2a3142; border: 1px solid var(--line); pointer-events: none;
+    }
+    .toggle-track::after {
+      content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+      border-radius: 50%; background: #d7dbe7; transition: transform .15s ease, background .15s ease;
+    }
+    .toggle-switch input:checked + .toggle-track {
+      background: rgba(61,222,168,.35); border-color: rgba(61,222,168,.45);
+    }
+    .toggle-switch input:checked + .toggle-track::after {
+      transform: translateX(18px); background: var(--accent);
+    }
+    .options-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.4; }
+    .options-hint.warn { color: #f0b429; }
     .ip-shell {
-      display: flex;
-      align-items: stretch;
-      overflow: hidden;
-      border-radius: 11px;
-      background: linear-gradient(180deg, #151920 0%, #0e1116 100%);
-      border: 1px solid rgba(0,0,0,0.5);
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        inset 0 -1px 0 rgba(255,255,255,0.04);
+      display: flex; align-items: center; gap: 0;
+      background: #1a2030; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
     }
-
-    .ip-shell:focus-within {
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        0 0 0 2px rgba(47, 211, 154, 0.28);
-    }
-
-    .ip-shell.is-invalid {
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        0 0 0 2px rgba(255, 77, 87, 0.35);
-    }
-
-    .ip-shell.is-valid {
-      box-shadow:
-        inset 0 2px 5px rgba(0,0,0,0.65),
-        0 0 0 2px rgba(47, 211, 154, 0.28);
-    }
-
+    .ip-shell:focus-within { border-color: rgba(61,222,168,.5); }
+    .ip-shell.is-invalid { border-color: rgba(255,92,92,.55); }
+    .ip-shell.is-valid { border-color: rgba(61,222,168,.45); }
     .ip-shell input {
-      flex: 1;
-      min-width: 0;
-      border: 0;
-      background: transparent;
-      box-shadow: none;
-      color: var(--text);
-      padding: 10px 12px;
-      font-family: 'Share Tech Mono', monospace;
-      font-size: 14px;
-      font-weight: 400;
-      outline: none;
-      border-radius: 0;
+      flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text);
+      padding: 12px; font: inherit; font-family: ui-monospace, monospace; font-size: 15px; outline: none;
     }
-
-    .ip-suffix {
-      display: flex;
-      align-items: center;
-      color: var(--muted);
-      font-size: 12px;
-      padding-right: 8px;
-      font-family: 'Share Tech Mono', monospace;
-    }
-
+    .ip-suffix { color: var(--muted); font-size: 12px; padding-right: 8px; font-family: ui-monospace, monospace; }
     .ip-clear {
-      border: none;
-      border-left: 1px solid rgba(255,255,255,0.06);
-      background: transparent;
-      color: var(--muted);
-      padding: 0 14px;
-      font-size: 18px;
-      line-height: 1;
-      cursor: pointer;
+      border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted);
+      padding: 0 14px; font-size: 18px; line-height: 1;
     }
-
-    .ip-hint {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 8px;
-      line-height: 1.4;
-    }
-
+    .ip-hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
     .ip-hint.error { color: #ff8d8d; }
     .ip-hint.ok { color: var(--accent); }
-
+    .wifi-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; }
     .btn-connect-wifi {
-      position: relative;
-      overflow: hidden;
-      width: 100%;
-      margin-top: 10px;
-      border: none;
-      border-radius: 12px;
-      padding: 14px 12px;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      cursor: pointer;
-      color: #031a12;
-      background:
-        radial-gradient(ellipse 90% 55% at 50% 0%, rgba(180,255,220,0.55) 0%, transparent 50%),
-        linear-gradient(180deg, #4af0b8 0%, #2ad092 45%, #14966a 100%);
-      border: 1px solid #042818;
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.45),
-        inset 0 -2px 4px rgba(0,0,0,0.2),
-        0 1px 0 #8affd4,
-        0 3px 0 #063d28,
-        0 5px 10px rgba(0,0,0,0.35);
-      text-shadow: 0 1px 0 rgba(255,255,255,0.3);
+      width: 100%; border: 1px solid rgba(61,222,168,.35); border-radius: 10px;
+      background: rgba(61,222,168,.12); color: var(--accent);
+      padding: 12px; font: inherit; font-weight: 700; font-size: 14px;
     }
-
-    .btn-connect-wifi::before {
-      content: '';
-      position: absolute;
-      top: 2px;
-      left: 12%;
-      right: 12%;
-      height: 40%;
-      border-radius: 40%;
-      background: linear-gradient(180deg, rgba(255,255,255,0.3), transparent);
-      pointer-events: none;
+    .btn-connect-wifi:disabled { opacity: .45; }
+    .card-hint { font-size: 12px; color: var(--muted); margin: -2px 0 10px; line-height: 1.35; }
+    .msg { font-size: 12px; color: var(--muted); min-height: 32px; margin: 8px 0 14px; word-break: break-word; }
+    .btn {
+      width: 100%; border: 0; border-radius: 14px; padding: 18px;
+      font: inherit; font-size: 16px; font-weight: 700; margin-bottom: 10px;
     }
-
-    .btn-connect-wifi:active:not(:disabled) {
-      transform: translateY(3px);
-      box-shadow:
-        inset 0 4px 8px rgba(0,0,0,0.35),
-        0 1px 0 #063d28;
-    }
-
-    .btn-connect-wifi:disabled { opacity: 0.45; cursor: not-allowed; }
-
-    .options-hint {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 10px;
-      line-height: 1.4;
-    }
-
-    .options-hint.warn { color: var(--warn); }
-
-    .msg {
-      font-size: 11px;
-      color: var(--muted);
-      min-height: 28px;
-      text-align: center;
-      line-height: 1.4;
-      word-break: break-word;
-      font-family: 'Share Tech Mono', monospace;
-    }
-
-    .btn-primary, .btn-stop {
-      position: relative;
-      overflow: hidden;
-      width: 100%;
-      border: none;
-      border-radius: 18px;
-      padding: 18px 18px 16px;
-      font: inherit;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: transform 0.06s ease, box-shadow 0.06s ease;
-    }
-
-    .btn-primary::before,
-    .btn-stop::before {
-      content: '';
-      position: absolute;
-      top: 3px;
-      left: 10%;
-      right: 10%;
-      height: 40%;
-      border-radius: 40%;
-      background: linear-gradient(180deg, rgba(255,255,255,0.35), transparent);
-      pointer-events: none;
-    }
-
-    .btn-primary {
-      color: #031a12;
-      background:
-        radial-gradient(ellipse 90% 55% at 50% 0%, rgba(180,255,220,0.65) 0%, transparent 50%),
-        linear-gradient(180deg, #55f5c0 0%, #2ad092 20%, #16a06c 55%, #0b6b48 100%);
-      border: 1px solid #042818;
-      box-shadow:
-        inset 0 2px 0 rgba(255,255,255,0.5),
-        inset 0 -4px 6px rgba(0,0,0,0.22),
-        0 1px 0 #8affd4,
-        0 3px 0 #1a8a60,
-        0 6px 0 #063d28,
-        0 9px 0 #021a12,
-        0 14px 26px rgba(0,0,0,0.5);
-      text-shadow: 0 1px 0 rgba(255,255,255,0.4);
-    }
-
-    .btn-primary:active:not(:disabled) {
-      transform: translateY(6px);
-      box-shadow:
-        inset 0 5px 14px rgba(0,0,0,0.4),
-        inset 0 1px 0 rgba(255,255,255,0.12),
-        0 1px 0 #063d28,
-        0 2px 0 #021a12;
-    }
-
-    .btn-primary:disabled {
-      color: #6b7388;
-      background: linear-gradient(180deg, #343c4a 0%, #222830 55%, #1a1f28 100%);
-      border-color: #0a0c10;
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.1),
-        0 1px 0 #4a5363,
-        0 4px 0 #0a0c10;
-      text-shadow: none;
-      cursor: not-allowed;
-    }
-
-    .btn-stop {
-      display: none;
-      color: #fff8f8;
-      background:
-        radial-gradient(ellipse 90% 55% at 50% 0%, rgba(255,190,195,0.6) 0%, transparent 50%),
-        linear-gradient(180deg, #ff8a92 0%, #f04a54 20%, #c8202e 55%, #8a121c 100%);
-      border: 1px solid #4a0a10;
-      box-shadow:
-        inset 0 2px 0 rgba(255,255,255,0.45),
-        inset 0 -4px 6px rgba(0,0,0,0.25),
-        0 1px 0 #ffb0b6,
-        0 3px 0 #a82028,
-        0 6px 0 #5a0e14,
-        0 9px 0 #2a060a,
-        0 14px 26px rgba(0,0,0,0.5);
-      text-shadow: 0 1px 0 rgba(0,0,0,0.4);
-    }
-
+    .btn-go { background: var(--accent); color: #062319; }
+    .btn-stop { background: var(--danger); color: #fff; display: none; }
     .btn-stop.show { display: block; }
-
-    .btn-stop:active:not(:disabled) {
-      transform: translateY(6px);
-      box-shadow:
-        inset 0 5px 14px rgba(0,0,0,0.45),
-        inset 0 1px 0 rgba(255,255,255,0.12),
-        0 1px 0 #5a0e14,
-        0 2px 0 #2a060a;
-    }
-
-    .err {
-      color: #ff8d8d;
-      font-size: 12px;
-      text-align: center;
-      min-height: 16px;
-    }
-
-    .actions {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+    .btn:disabled { opacity: .5; }
+    .err { color: #ff8d8d; font-size: 13px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <div class="app">
-    <header>
-      <div class="brand">
-        <div class="brand-name">Cleven<span>Rec</span></div>
-        <div class="brand-sub">remoto · mesmo Wi‑Fi</div>
-      </div>
-      <div class="status-pill" id="status">
-        <span class="dot"></span>
-        <span id="statusText">Conectando…</span>
-      </div>
-    </header>
+  <h1>Cleven<span>Rec</span></h1>
+  <div class="sub">Controle remoto · mesmo Wi‑Fi do PC</div>
 
-    <div class="setup-grid">
-      <div>
-        <div class="section-label">Modo</div>
-        <div class="mode-switch">
-          <button type="button" class="mode-btn" id="mCapture">Capturar</button>
-          <button type="button" class="mode-btn active" id="mRecord">Gravar</button>
-        </div>
-        <div class="mode-hint" id="modeHint">Gravar salva um arquivo. Capturar só espelha.</div>
-      </div>
-      <div>
-        <div class="section-label">Conexão</div>
-        <div class="mode-switch">
-          <button type="button" class="mode-btn active" id="cUsb">USB</button>
-          <button type="button" class="mode-btn" id="cWifi">Wi‑Fi</button>
-        </div>
-      </div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Conectando…</span></div>
+
+  <div class="modes">
+    <button type="button" id="mCapture">Capturar</button>
+    <button type="button" id="mRecord" class="active">Gravar</button>
+  </div>
+  <div class="mode-hint" id="modeHint">Gravar salva um arquivo. Capturar só espelha.</div>
+
+  <div class="modes">
+    <button type="button" id="cUsb" class="active">USB</button>
+    <button type="button" id="cWifi">Wi‑Fi</button>
+  </div>
+
+  <div class="card" id="wifiCard" style="display:none">
+    <div class="label">Wi‑Fi do celular</div>
+    <div class="ip-shell" id="wifiShell">
+      <input type="text" id="wifiAddress" placeholder="192.168.0.20" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="21" aria-describedby="wifiHint">
+      <span class="ip-suffix">:5555</span>
+      <button type="button" class="ip-clear" id="btnClearWifi" hidden aria-label="Limpar">×</button>
     </div>
-
-    <div class="card" id="wifiCard" style="display:none">
-      <div class="card-title">Wi‑Fi do celular</div>
-      <div class="ip-shell" id="wifiShell">
-        <input type="text" id="wifiAddress" placeholder="192.168.0.20" inputmode="decimal" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="21" aria-describedby="wifiHint">
-        <span class="ip-suffix">:5555</span>
-        <button type="button" class="ip-clear" id="btnClearWifi" hidden aria-label="Limpar">×</button>
-      </div>
-      <div class="ip-hint" id="wifiHint">Só o IP — porta 5555 automática</div>
+    <div class="ip-hint" id="wifiHint">Só o IP — porta 5555 automática</div>
+    <div class="wifi-actions">
       <button type="button" class="btn-connect-wifi" id="btnConnectWifi">Conectar Wi‑Fi</button>
     </div>
-
-    <div class="card" id="audioCard">
-      <div class="card-title">Áudio da gravação</div>
-      <div class="mode-switch three" id="audioBlock" style="margin-bottom:8px">
-        <button type="button" class="mode-btn" id="audioOff">Só vídeo</button>
-        <button type="button" class="mode-btn active" id="audioPc">PC</button>
-        <button type="button" class="mode-btn" id="audioPhone">Celular</button>
-      </div>
-      <div class="mode-switch three" id="pcAudioBlock" style="margin-bottom:8px">
-        <button type="button" class="mode-btn active" id="audioPcDesktop">Interno</button>
-        <button type="button" class="mode-btn" id="audioPcMic">Microfone</button>
-        <button type="button" class="mode-btn" id="audioPcBoth">Ambos</button>
-      </div>
-      <div class="options-hint" id="audioHint">Áudio interno do computador via OBS — sync ao parar.</div>
-      <input type="hidden" id="audioSource" value="pc-desktop">
-      <input type="checkbox" id="useObsAudio" checked hidden>
-    </div>
-
-    <div class="card">
-      <div class="card-title" id="qualityTitle">Qualidade do arquivo</div>
-      <div class="card-hint" id="qualityHint">Bitrate, FPS e resolução do scrcpy.</div>
-      <div class="row">
-        <select id="bitrate">
-          <option value="2000K">2 Mbps</option>
-          <option value="4000K">4 Mbps</option>
-          <option value="6000K" selected>6 Mbps</option>
-          <option value="8000K">8 Mbps</option>
-          <option value="12000K">12 Mbps</option>
-        </select>
-        <select id="maxFps">
-          <option value="15">15 FPS</option>
-          <option value="24">24 FPS</option>
-          <option value="30" selected>30 FPS</option>
-          <option value="60">60 FPS</option>
-        </select>
-      </div>
-      <select id="maxSize">
-        <option value="0" selected>Resolução nativa</option>
-        <option value="720">720p</option>
-        <option value="1080">1080p</option>
-        <option value="1440">1440p</option>
-        <option value="1920">1920</option>
-      </select>
-      <select id="format" class="record-only">
-        <option value="mkv" selected>MKV</option>
-        <option value="mp4">MP4</option>
-      </select>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Tela do celular</div>
-      <div class="mode-switch three" style="margin-bottom:10px">
-        <button type="button" class="mode-btn active" id="screenKeep">Ligada</button>
-        <button type="button" class="mode-btn" id="screenDefault">Padrão</button>
-        <button type="button" class="mode-btn" id="screenOff">Desligada</button>
-      </div>
-      <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
-      <input type="checkbox" id="stayAwake" checked hidden>
-      <input type="checkbox" id="turnScreenOff" hidden>
-    </div>
-
-    <div class="actions">
-      <div class="msg" id="msg">Pronto</div>
-      <button class="btn-primary" id="btnStart" type="button">Iniciar</button>
-      <button class="btn-stop" id="btnStop" type="button">Parar</button>
-      <div class="err" id="err"></div>
-    </div>
   </div>
+
+  <div class="card" id="audioCard">
+    <div class="label">Áudio da gravação</div>
+    <div class="modes" id="audioBlock" style="margin-bottom:8px;grid-template-columns:1fr 1fr 1fr">
+      <button type="button" id="audioOff">Só vídeo</button>
+      <button type="button" id="audioPc" class="active">PC</button>
+      <button type="button" id="audioPhone">Celular</button>
+    </div>
+    <div class="modes" id="pcAudioBlock" style="margin-bottom:8px;grid-template-columns:1fr 1fr 1fr">
+      <button type="button" id="audioPcDesktop" class="active">Interno</button>
+      <button type="button" id="audioPcMic">Microfone</button>
+      <button type="button" id="audioPcBoth">Ambos</button>
+    </div>
+    <div class="options-hint" id="audioHint">Áudio interno do computador via OBS — sync ao parar.</div>
+    <input type="hidden" id="audioSource" value="pc-desktop">
+    <input type="checkbox" id="useObsAudio" checked hidden>
+  </div>
+
+  <div class="card">
+    <div class="label" id="qualityTitle">Qualidade do arquivo</div>
+    <div class="card-hint" id="qualityHint">Bitrate, FPS e resolução do scrcpy.</div>
+    <div class="row">
+      <select id="bitrate">
+        <option value="2000K">2 Mbps</option>
+        <option value="4000K">4 Mbps</option>
+        <option value="6000K" selected>6 Mbps</option>
+        <option value="8000K">8 Mbps</option>
+        <option value="12000K">12 Mbps</option>
+      </select>
+      <select id="maxFps">
+        <option value="15">15 FPS</option>
+        <option value="24">24 FPS</option>
+        <option value="30" selected>30 FPS</option>
+        <option value="60">60 FPS</option>
+      </select>
+    </div>
+    <select id="maxSize">
+      <option value="0" selected>Resolução nativa</option>
+      <option value="720">720p</option>
+      <option value="1080">1080p</option>
+      <option value="1440">1440p</option>
+      <option value="1920">1920</option>
+    </select>
+    <select id="format" class="record-only">
+      <option value="mkv" selected>MKV</option>
+      <option value="mp4">MP4</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <div class="label">Tela do celular</div>
+    <div class="modes" style="margin-bottom:10px">
+      <button type="button" id="screenKeep" class="active">Ligada</button>
+      <button type="button" id="screenDefault">Padrão</button>
+    </div>
+    <div class="modes" style="margin-bottom:10px;grid-template-columns:1fr">
+      <button type="button" id="screenOff">Desligada</button>
+    </div>
+    <div class="options-hint" id="optionsHint">Mantém a tela acesa durante a sessão.</div>
+    <input type="checkbox" id="stayAwake" checked hidden>
+    <input type="checkbox" id="turnScreenOff" hidden>
+  </div>
+
+  <div class="msg" id="msg">Pronto</div>
+  <button class="btn btn-go" id="btnStart" type="button">Iniciar</button>
+  <button class="btn btn-stop" id="btnStop" type="button">Parar</button>
+  <div class="err" id="err"></div>
 
   <script>
     let mode = 'record';
