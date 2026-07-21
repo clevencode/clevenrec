@@ -20,6 +20,11 @@ set OPENAI_BASE_URL=https://api.openai.com/v1
 set OPENAI_VISION_MODEL=gpt-4o-mini
 ```
 
+## Performance ADB
+
+- **Toques:** preferência `scrcpy` control socket; fallback `AdbShellSession` (um `adb shell` aberto, comandos via stdin — sem spawn por clique).
+- **Captura:** `exec-out` com ordem **gzip -1 → raw → PNG**. O modo usado fica em `AdbFrameSource.last_mode`.
+
 ## Captura (Bloco 1)
 
 ```bash

@@ -34,13 +34,107 @@ def _run(cmd: list[str], timeout: float = 20.0) -> subprocess.CompletedProcess:
     )
 
 
+class AdbShellSession:
+    """
+    Uma sessão `adb shell` persistente: injeta comandos via stdin
+    sem spawnar um novo processo ADB por toque.
+    """
+
+    def __init__(self, adb_path: str, serial: str) -> None:
+        self.adb_path = adb_path
+        self.serial = serial
+        self._proc: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
+        self._seq = 0
+        self._open()
+
+    def _open(self) -> None:
+        self.close(quiet=True)
+        self._proc = subprocess.Popen(
+            [self.adb_path, "-s", self.serial, "shell"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
+        )
+
+    def run(self, command: str, wait: bool = True, timeout: float = 8.0) -> None:
+        """
+        Envia comando no shell aberto.
+        wait=True: bloqueia até o device terminar (echo de marcador).
+        """
+        with self._lock:
+            if self._proc is None or self._proc.poll() is not None:
+                self._open()
+            assert self._proc is not None and self._proc.stdin is not None
+            if not wait:
+                line = (command.rstrip("\n") + "\n").encode("utf-8", errors="replace")
+                self._proc.stdin.write(line)
+                self._proc.stdin.flush()
+                return
+
+            self._seq += 1
+            marker = f"__CLEVEN_OK_{self._seq}__"
+            # um único processo shell; input ainda sobe Java no device,
+            # mas sem spawn de adb.exe no host
+            payload = f"{command.rstrip()}; echo {marker}\n".encode(
+                "utf-8", errors="replace"
+            )
+            self._proc.stdin.write(payload)
+            self._proc.stdin.flush()
+            assert self._proc.stdout is not None
+            deadline = time.time() + timeout
+            needle = marker.encode()
+            buf = b""
+            while time.time() < deadline:
+                chunk = self._proc.stdout.read(256)
+                if not chunk:
+                    if self._proc.poll() is not None:
+                        raise RuntimeError("adb shell encerrou durante comando.")
+                    time.sleep(0.002)
+                    continue
+                buf += chunk
+                if needle in buf:
+                    return
+                if len(buf) > 65536:
+                    buf = buf[-4096:]
+            raise TimeoutError(f"Timeout ADB shell: {command[:80]}")
+
+    def close(self, quiet: bool = False) -> None:
+        proc = self._proc
+        self._proc = None
+        if not proc:
+            return
+        try:
+            if proc.stdin and not proc.stdin.closed:
+                try:
+                    proc.stdin.write(b"exit\n")
+                    proc.stdin.flush()
+                except OSError:
+                    pass
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        except Exception:
+            if not quiet:
+                raise
+
+
 class AdbInputFallback:
-    """Fallback via adb shell input (mais lento)."""
+    """Fallback ADB com shell persistente (evita spawn por clique)."""
 
     def __init__(self, adb_path: str, serial: str) -> None:
         self.adb_path = adb_path
         self.serial = serial
         self._size: Optional[tuple[int, int]] = None
+        self.shell = AdbShellSession(adb_path, serial)
 
     def _cmd(self, *args: str) -> list[str]:
         return [self.adb_path, "-s", self.serial, "shell", *args]
@@ -62,22 +156,16 @@ class AdbInputFallback:
         return self._size
 
     def tap(self, x: int, y: int) -> None:
-        _run(self._cmd("input", "tap", str(x), str(y)))
+        self.shell.run(f"input tap {int(x)} {int(y)}")
 
     def long_press(self, x: int, y: int, ms: int = 600) -> None:
-        _run(self._cmd("input", "swipe", str(x), str(y), str(x), str(y), str(ms)))
+        self.shell.run(
+            f"input swipe {int(x)} {int(y)} {int(x)} {int(y)} {int(ms)}"
+        )
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
-        _run(
-            self._cmd(
-                "input",
-                "swipe",
-                str(x1),
-                str(y1),
-                str(x2),
-                str(y2),
-                str(duration_ms),
-            )
+        self.shell.run(
+            f"input swipe {int(x1)} {int(y1)} {int(x2)} {int(y2)} {int(duration_ms)}"
         )
 
     def write_text(self, text: str) -> None:
@@ -86,9 +174,12 @@ class AdbInputFallback:
             text.replace("\\", "\\\\")
             .replace(" ", "%s")
             .replace("'", "\\'")
+            .replace('"', '\\"')
         )
-        _run(self._cmd("input", "text", encoded))
+        self.shell.run(f"input text {encoded}")
 
+    def close(self) -> None:
+        self.shell.close(quiet=True)
 
 class ScrcpyController:
     """
@@ -441,3 +532,4 @@ class ActionExecutor:
 
     def close(self) -> None:
         self.scrcpy.close()
+        self.adb.close()
