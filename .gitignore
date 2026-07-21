@@ -8,3 +8,7 @@ Thumbs.db
 *.mkv
 *.mp4
 .env
+
+__pycache__/
+*.py[cod]
+
