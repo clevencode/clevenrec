@@ -1,4 +1,4 @@
-"""Fontes de frame — ADB otimizado (raw / gzip / PNG)."""
+"""Fontes de frame — scrcpy stream (preferido) + ADB (gzip/raw/PNG)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ import struct
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import cv2
 import numpy as np
 
 from .config import resolve_adb_path
+
+if TYPE_CHECKING:
+    from .executor import ScrcpyController
 
 # Android PixelFormat (screencap raw header)
 _PIXEL_FORMAT_RGBA_8888 = 1
@@ -23,11 +26,42 @@ _PIXEL_FORMAT_RGB_565 = 4
 
 
 class FrameSource(ABC):
-    """Interface para trocar ADB por stream scrcpy no futuro."""
+    """Interface para ADB screencap ou stream scrcpy."""
 
     @abstractmethod
     def grab(self) -> np.ndarray:
         """Retorna frame BGR (H, W, 3)."""
+
+
+class ScrcpyFrameSource(FrameSource):
+    """Último frame decodificado do socket de vídeo do scrcpy (baixa latência)."""
+
+    def __init__(
+        self,
+        controller: "ScrcpyController",
+        timeout_s: float = 3.0,
+        prefer_fresh: bool = False,
+    ) -> None:
+        self.controller = controller
+        self.timeout_s = timeout_s
+        self.prefer_fresh = prefer_fresh
+        self.last_mode = "scrcpy"
+
+    def grab(self) -> np.ndarray:
+        if self.prefer_fresh:
+            # Descarta o “já tenho frame” e espera um pacote novo (ou stale no timeout).
+            self.controller._frame_event.clear()
+            got = self.controller._frame_event.wait(timeout=min(0.35, self.timeout_s))
+            frame = self.controller.wait_frame(timeout=0.0 if got else self.timeout_s)
+        else:
+            frame = self.controller.wait_frame(timeout=self.timeout_s)
+        if frame is None:
+            raise RuntimeError(
+                "Timeout aguardando frame do stream scrcpy "
+                f"(frames={self.controller.frame_count}, "
+                f"err={self.controller.last_error!r})."
+            )
+        return frame
 
 
 def _decode_raw_screencap(data: bytes) -> np.ndarray:
@@ -97,7 +131,7 @@ class AdbFrameSource(FrameSource):
     ) -> None:
         """
         mode:
-          - auto: raw → gzip raw → PNG
+          - auto: gzip → raw → PNG (persiste o modo vencedor entre grabs)
           - raw / gzip / png: força um caminho
         """
         self.adb_path = adb_path or resolve_adb_path()
@@ -105,6 +139,7 @@ class AdbFrameSource(FrameSource):
         self.timeout_s = timeout_s
         self.mode = (mode or "auto").lower()
         self.last_mode: Optional[str] = None
+        self._preferred_mode: Optional[str] = None
         path = Path(self.adb_path)
         if path.is_absolute() and not path.is_file():
             raise FileNotFoundError(f"adb não encontrado: {self.adb_path}")
@@ -195,15 +230,25 @@ class AdbFrameSource(FrameSource):
         if self.mode == "png":
             return self._grab_png()
 
-        # auto: no cabo, gzip costuma vencer raw (menos bytes na USB)
-        errors: list[str] = []
-        for name, fn in (
+        # auto: preferir modo já validado; senão gzip → raw → PNG
+        order: list[tuple[str, Callable[[], np.ndarray]]] = [
             ("gzip", self._grab_gzip),
             ("raw", self._grab_raw),
             ("png", self._grab_png),
-        ):
+        ]
+        if self._preferred_mode:
+            preferred = [(n, fn) for n, fn in order if n == self._preferred_mode]
+            rest = [(n, fn) for n, fn in order if n != self._preferred_mode]
+            order = preferred + rest
+
+        errors: list[str] = []
+        for name, fn in order:
             try:
-                return fn()
+                frame = fn()
+                self._preferred_mode = name
+                return frame
             except Exception as exc:
+                if name == self._preferred_mode:
+                    self._preferred_mode = None
                 errors.append(f"{name}: {exc}")
         raise RuntimeError("Falha no screencap ADB: " + " | ".join(errors))

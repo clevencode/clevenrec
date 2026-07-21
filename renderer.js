@@ -65,6 +65,11 @@ const els = {
   transferPreviewImg: document.getElementById('transferPreviewImg'),
   transferPreviewName: document.getElementById('transferPreviewName'),
   transferPreviewInfo: document.getElementById('transferPreviewInfo'),
+  transferPreviewMedia: document.getElementById('transferPreviewMedia'),
+  transferPreviewAudio: document.getElementById('transferPreviewAudio'),
+  transferPreviewVideo: document.getElementById('transferPreviewVideo'),
+  transferPreviewPdf: document.getElementById('transferPreviewPdf'),
+  transferPreviewText: document.getElementById('transferPreviewText'),
   btnTransferUp: document.getElementById('btnTransferUp'),
   btnTransferRefresh: document.getElementById('btnTransferRefresh'),
   btnTransferPush: document.getElementById('btnTransferPush'),
@@ -1106,9 +1111,17 @@ const TRANSFER_EXT = {
   audio: new Set(['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'opus', 'amr']),
   docs: new Set([
     'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'odt', 'ods', 'odp',
-    'csv', 'json', 'xml', 'md', 'epub', 'pages', 'numbers', 'key',
+    'csv', 'json', 'xml', 'md', 'epub', 'pages', 'numbers', 'key', 'log',
   ]),
 };
+
+const PREVIEWABLE_EXT = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg',
+  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus',
+  'mp4', 'webm', 'mkv', 'mov', '3gp', 'm4v',
+  'pdf',
+  'txt', 'md', 'json', 'xml', 'csv', 'log',
+]);
 
 function setTransferHint(text) {
   if (els.transferHint) els.transferHint.textContent = text || '';
@@ -1290,7 +1303,44 @@ function syncTransferCatButtons(counts = null) {
   });
 }
 
+function stopPreviewMedia() {
+  if (els.transferPreviewAudio) {
+    try { els.transferPreviewAudio.pause(); } catch (_) { /* ignore */ }
+    els.transferPreviewAudio.removeAttribute('src');
+    try { els.transferPreviewAudio.load(); } catch (_) { /* ignore */ }
+  }
+  if (els.transferPreviewVideo) {
+    try { els.transferPreviewVideo.pause(); } catch (_) { /* ignore */ }
+    els.transferPreviewVideo.removeAttribute('src');
+    try { els.transferPreviewVideo.load(); } catch (_) { /* ignore */ }
+  }
+  if (els.transferPreviewPdf) {
+    els.transferPreviewPdf.removeAttribute('src');
+  }
+  if (els.transferPreviewText) {
+    els.transferPreviewText.textContent = '';
+  }
+  if (els.transferPreviewMedia) {
+    els.transferPreviewMedia.classList.remove('is-open');
+    els.transferPreviewMedia.removeAttribute('data-kind');
+    els.transferPreviewMedia.hidden = true;
+  }
+}
+
+function openPreviewMedia(kind) {
+  if (!els.transferPreviewMedia) return;
+  els.transferPreviewMedia.hidden = false;
+  els.transferPreviewMedia.dataset.kind = kind;
+  els.transferPreviewMedia.classList.add('is-open');
+}
+
+function isPreviewableEntry(entry) {
+  if (!entry || entry.isDir) return false;
+  return PREVIEWABLE_EXT.has(fileExtension(entry.name));
+}
+
 function clearTransferPreview(message = 'Nenhum item selecionado', info = 'Clique na lista para pré-visualizar') {
+  stopPreviewMedia();
   if (els.transferPreview) els.transferPreview.classList.add('transfer-preview-empty');
   if (els.transferPreviewFrame) els.transferPreviewFrame.classList.remove('has-image');
   if (els.transferPreviewImg) {
@@ -1306,13 +1356,15 @@ async function showTransferPreview(entry, remotePath) {
   if (!els.transferPreview) return;
   const token = ++transferPreviewToken;
   const cat = categorizeEntry(entry);
-  const kind = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[cat] || 'Arquivo');
+  const kindLabel = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[cat] || 'Arquivo');
   const size = formatSize(entry.size);
   const where = downloadBreadcrumb(remotePath);
+
+  stopPreviewMedia();
   els.transferPreview.classList.remove('transfer-preview-empty');
   if (els.transferPreviewName) els.transferPreviewName.textContent = entry.name;
   if (els.transferPreviewInfo) {
-    els.transferPreviewInfo.textContent = [kind, size, where].filter(Boolean).join(' · ');
+    els.transferPreviewInfo.textContent = [kindLabel, size, where].filter(Boolean).join(' · ');
   }
   if (els.transferPreviewIcon) els.transferPreviewIcon.textContent = transferIconFor(entry);
   if (els.transferPreviewFrame) els.transferPreviewFrame.classList.remove('has-image');
@@ -1321,10 +1373,17 @@ async function showTransferPreview(entry, remotePath) {
     els.transferPreviewImg.alt = entry.name;
   }
 
-  if (entry.isDir || cat !== 'images' || !window.api.transferPreview) return;
+  if (entry.isDir || !isPreviewableEntry(entry) || !window.api.transferPreview) {
+    if (!entry.isDir && !isPreviewableEntry(entry) && els.transferPreviewInfo) {
+      els.transferPreviewInfo.textContent = [kindLabel, size, 'Preview indisponível — use Baixar']
+        .filter(Boolean)
+        .join(' · ');
+    }
+    return;
+  }
 
   if (els.transferPreviewInfo) {
-    els.transferPreviewInfo.textContent = [kind, size, 'carregando preview…'].filter(Boolean).join(' · ');
+    els.transferPreviewInfo.textContent = [kindLabel, size, 'carregando preview…'].filter(Boolean).join(' · ');
   }
   try {
     const result = await window.api.transferPreview({
@@ -1332,26 +1391,60 @@ async function showTransferPreview(entry, remotePath) {
       size: entry.size,
     });
     if (token !== transferPreviewToken) return;
-    if (result?.success && result.dataUrl && els.transferPreviewImg) {
+
+    if (!result?.success) {
+      if (els.transferPreviewInfo) {
+        els.transferPreviewInfo.textContent = [
+          kindLabel,
+          size,
+          result?.message || 'Preview indisponível',
+        ].filter(Boolean).join(' · ');
+      }
+      return;
+    }
+
+    const infoBits = [kindLabel, formatSize(result.size || entry.size), where];
+    if (result.kind === 'image' && result.dataUrl && els.transferPreviewImg) {
       els.transferPreviewImg.src = result.dataUrl;
       els.transferPreviewImg.alt = entry.name;
       if (els.transferPreviewFrame) els.transferPreviewFrame.classList.add('has-image');
-      if (els.transferPreviewInfo) {
-        els.transferPreviewInfo.textContent = [kind, formatSize(result.size || entry.size), where]
-          .filter(Boolean)
-          .join(' · ');
-      }
+    } else if (result.kind === 'audio' && result.mediaUrl && els.transferPreviewAudio) {
+      openPreviewMedia('audio');
+      els.transferPreviewAudio.src = result.mediaUrl;
+    } else if (result.kind === 'video' && result.mediaUrl && els.transferPreviewVideo) {
+      openPreviewMedia('video');
+      els.transferPreviewVideo.src = result.mediaUrl;
+      els.transferPreviewVideo.onerror = () => {
+        if (token !== transferPreviewToken) return;
+        if (els.transferPreviewInfo) {
+          els.transferPreviewInfo.textContent = [
+            kindLabel,
+            size,
+            'codec não suportado; use Baixar',
+          ].filter(Boolean).join(' · ');
+        }
+      };
+    } else if (result.kind === 'pdf' && result.mediaUrl && els.transferPreviewPdf) {
+      openPreviewMedia('pdf');
+      els.transferPreviewPdf.src = result.mediaUrl;
+    } else if (result.kind === 'text' && typeof result.text === 'string' && els.transferPreviewText) {
+      openPreviewMedia('text');
+      els.transferPreviewText.textContent = result.text;
+      if (result.truncated) infoBits.push('texto truncado');
     } else if (els.transferPreviewInfo) {
-      els.transferPreviewInfo.textContent = [
-        kind,
-        size,
-        result?.message || 'Preview indisponível',
-      ].filter(Boolean).join(' · ');
+      els.transferPreviewInfo.textContent = [kindLabel, size, 'Preview indisponível']
+        .filter(Boolean)
+        .join(' · ');
+      return;
+    }
+
+    if (els.transferPreviewInfo) {
+      els.transferPreviewInfo.textContent = infoBits.filter(Boolean).join(' · ');
     }
   } catch (err) {
     if (token !== transferPreviewToken) return;
     if (els.transferPreviewInfo) {
-      els.transferPreviewInfo.textContent = [kind, size, err?.message || 'Falha no preview']
+      els.transferPreviewInfo.textContent = [kindLabel, size, err?.message || 'Falha no preview']
         .filter(Boolean)
         .join(' · ');
     }

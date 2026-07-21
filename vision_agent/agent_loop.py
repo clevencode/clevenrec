@@ -13,17 +13,43 @@ from typing import Any, Callable, Optional
 import cv2
 
 from .brain import VisionBrain
-from .capture import AdbFrameSource
+from .capture import AdbFrameSource, FrameSource, ScrcpyFrameSource
 from .config import (
     AGENT_MAX_STEPS,
-    AGENT_STEP_DELAY_S,
+    CAPTURE_BACKEND,
     FRAMES_DIR,
     JPEG_QUALITY,
+    SETTLE_IDLE_S,
     resolve_adb_path,
+    settle_for_action,
 )
 from .executor import ActionExecutor
 from .filter import StabilityFilter
 from .normalize import normalize_frame
+
+
+def _open_frame_source(
+    executor: ActionExecutor,
+    serial: str,
+    prefer: str = CAPTURE_BACKEND,
+) -> tuple[FrameSource, str]:
+    """
+    Preferência: stream scrcpy (mesmo socket do control) → ADB screencap.
+    prefer: auto|scrcpy|adb
+    """
+    prefer = (prefer or "auto").lower()
+    if prefer != "adb" and executor.backend == "scrcpy" and executor.scrcpy.connected:
+        frame = executor.scrcpy.wait_frame(timeout=3.0)
+        if frame is not None and executor.scrcpy.video_ok:
+            return ScrcpyFrameSource(executor.scrcpy), "scrcpy"
+        if prefer == "scrcpy":
+            raise RuntimeError(
+                "Captura scrcpy solicitada, mas nenhum frame chegou "
+                f"(err={executor.scrcpy.last_error!r})."
+            )
+    source = AdbFrameSource(adb_path=resolve_adb_path(), serial=serial)
+    source.ensure_serial()
+    return source, "adb"
 
 
 def _now() -> str:
@@ -37,6 +63,7 @@ class AgentState:
     status: str = "idle"  # idle|running|concluido|bloqueado|error|stopped
     step: int = 0
     backend: str = ""
+    capture: str = ""
     last_pensamento: str = ""
     last_acao: str = ""
     last_frame: str = ""
@@ -52,6 +79,7 @@ class AgentState:
             "status": self.status,
             "step": self.step,
             "backend": self.backend,
+            "capture": self.capture,
             "last_pensamento": self.last_pensamento,
             "last_acao": self.last_acao,
             "last_frame": self.last_frame,
@@ -127,25 +155,26 @@ class AgentMission:
     def _run(self, objetivo: str, serial: Optional[str]) -> None:
         executor: Optional[ActionExecutor] = None
         try:
-            source = AdbFrameSource(
-                adb_path=resolve_adb_path(),
-                serial=serial,
-            )
-            serial_used = source.ensure_serial()
             filt = StabilityFilter()
             brain = VisionBrain()
             if not brain.configured:
                 raise RuntimeError(
                     "OPENAI_API_KEY ausente. Defina a variável de ambiente."
                 )
-            executor = ActionExecutor(serial=serial_used)
+            executor = ActionExecutor(serial=serial)
+            serial_used = executor.serial
+            source, capture_backend = _open_frame_source(executor, serial_used)
             with self._lock:
                 self.state.backend = executor.backend
+                self.state.capture = capture_backend
 
             self._push_log(
                 "ready",
                 serial=serial_used,
                 backend=executor.backend,
+                capture=capture_backend,
+                scrcpy_frames=getattr(executor.scrcpy, "frame_count", 0),
+                scrcpy_codec=getattr(executor.scrcpy, "codec_name", None),
                 scrcpy_error=getattr(executor.scrcpy, "last_error", None),
             )
 
@@ -161,7 +190,7 @@ class AgentMission:
                         approved = True
                         filt._last_approved = frame.copy()
                     else:
-                        time.sleep(AGENT_STEP_DELAY_S)
+                        time.sleep(SETTLE_IDLE_S)
                         continue
 
                 idle_rounds = 0
@@ -208,7 +237,7 @@ class AgentMission:
                     if exec_result.get("backend"):
                         self.state.backend = exec_result["backend"]
                 self._push_log("exec", step=step, result=exec_result)
-                time.sleep(AGENT_STEP_DELAY_S)
+                time.sleep(settle_for_action(acao))
             else:
                 if not self._stop.is_set():
                     with self._lock:

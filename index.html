@@ -1100,9 +1100,9 @@
 
     .transfer-preview {
       display: flex;
-      flex-direction: row;
-      gap: 12px;
-      align-items: center;
+      flex-direction: column;
+      gap: 10px;
+      align-items: stretch;
       min-height: 0;
       margin: 0 0 10px;
       padding: 0 0 10px;
@@ -1113,6 +1113,14 @@
       pointer-events: none;
       user-select: none;
       flex-shrink: 0;
+    }
+
+    .transfer-preview-head {
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      align-items: center;
+      min-width: 0;
     }
 
     .transfer-preview-frame {
@@ -1182,6 +1190,81 @@
     .transfer-preview-empty .transfer-preview-name {
       color: var(--muted);
       font-weight: 500;
+    }
+
+    .transfer-preview-media {
+      display: none;
+      width: 100%;
+      min-height: 0;
+      pointer-events: auto;
+      user-select: text;
+    }
+
+    .transfer-preview-media.is-open {
+      display: block;
+    }
+
+    .transfer-preview-media[data-kind="audio"] {
+      max-height: 56px;
+    }
+
+    .transfer-preview-media[data-kind="video"],
+    .transfer-preview-media[data-kind="pdf"] {
+      height: 200px;
+    }
+
+    .transfer-preview-media[data-kind="text"] {
+      height: 160px;
+    }
+
+    .transfer-preview-media audio,
+    .transfer-preview-media video,
+    .transfer-preview-media iframe,
+    .transfer-preview-media pre {
+      display: none;
+      width: 100%;
+      max-width: 100%;
+      border: 0;
+      border-radius: 10px;
+      background: var(--well);
+    }
+
+    .transfer-preview-media.is-open[data-kind="audio"] audio,
+    .transfer-preview-media.is-open[data-kind="video"] video,
+    .transfer-preview-media.is-open[data-kind="pdf"] iframe,
+    .transfer-preview-media.is-open[data-kind="text"] pre {
+      display: block;
+    }
+
+    .transfer-preview-media audio {
+      height: 40px;
+    }
+
+    .transfer-preview-media video {
+      height: 100%;
+      max-height: 200px;
+      object-fit: contain;
+      background: #000;
+    }
+
+    .transfer-preview-media iframe {
+      height: 100%;
+      border: 1px solid rgba(0,0,0,0.35);
+    }
+
+    .transfer-preview-media pre {
+      height: 100%;
+      margin: 0;
+      padding: 10px 12px;
+      overflow: auto;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid rgba(0,0,0,0.35);
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.35);
     }
 
     .transfer-crumb {
@@ -1663,13 +1746,21 @@
           <button class="btn-ghost" id="btnTransferRefresh" type="button">Atualizar</button>
         </div>
         <div class="transfer-preview transfer-preview-empty" id="transferPreview" aria-live="polite">
-          <div class="transfer-preview-frame" id="transferPreviewFrame">
-            <span class="transfer-preview-icon" id="transferPreviewIcon">▣</span>
-            <img id="transferPreviewImg" alt="">
+          <div class="transfer-preview-head">
+            <div class="transfer-preview-frame" id="transferPreviewFrame">
+              <span class="transfer-preview-icon" id="transferPreviewIcon">▣</span>
+              <img id="transferPreviewImg" alt="">
+            </div>
+            <div class="transfer-preview-meta">
+              <div class="transfer-preview-name" id="transferPreviewName">Nenhum item selecionado</div>
+              <div class="transfer-preview-info" id="transferPreviewInfo">Clique na lista para pré-visualizar</div>
+            </div>
           </div>
-          <div class="transfer-preview-meta">
-            <div class="transfer-preview-name" id="transferPreviewName">Nenhum item selecionado</div>
-            <div class="transfer-preview-info" id="transferPreviewInfo">Clique na lista para pré-visualizar</div>
+          <div class="transfer-preview-media" id="transferPreviewMedia" hidden>
+            <audio id="transferPreviewAudio" controls preload="metadata"></audio>
+            <video id="transferPreviewVideo" controls preload="metadata"></video>
+            <iframe id="transferPreviewPdf" title="Preview PDF"></iframe>
+            <pre id="transferPreviewText"></pre>
           </div>
         </div>
         <div class="transfer-cats" id="transferCats" role="tablist" aria-label="Filtro na pasta">

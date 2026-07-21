@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -6,6 +6,19 @@ const { spawn, exec, execFile, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
 const { autoUpdater } = require('electron-updater');
 const { startRemoteServer } = require('./remote-server');
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'cleven-preview',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+]);
 
 let mainWindow;
 let splashWindow = null;
@@ -1009,6 +1022,28 @@ app.whenReady().then(async () => {
     app.setAppUserModelId('com.cleven.clevenrec');
   }
 
+  protocol.handle('cleven-preview', (request) => {
+    try {
+      const parsed = new URL(request.url);
+      const fileName = parsed.searchParams.get('f');
+      if (!fileName || fileName.includes('..') || /[\\/]/.test(fileName)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const previewDir = path.resolve(getPreviewDir());
+      const full = path.resolve(previewDir, fileName);
+      const rel = path.relative(previewDir, full);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      if (!fs.existsSync(full)) {
+        return new Response('Not found', { status: 404 });
+      }
+      return net.fetch(pathToFileURL(full).href);
+    } catch (err) {
+      return new Response(err?.message || 'error', { status: 500 });
+    }
+  });
+
   initRuntimePaths();
   createSplash();
   createWindow();
@@ -1653,8 +1688,78 @@ ipcMain.handle('transfer-pull', async (_event, payload = {}) => safeIpc(async ()
   };
 }, 'Falha ao baixar arquivo'));
 
-const PREVIEW_MAX_BYTES = 15 * 1024 * 1024;
-const PREVIEW_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
+const PREVIEW_TEXT_MAX = 512 * 1024;
+const PREVIEW_LIMITS = {
+  image: 15 * 1024 * 1024,
+  audio: 40 * 1024 * 1024,
+  video: 80 * 1024 * 1024,
+  pdf: 40 * 1024 * 1024,
+  text: 8 * 1024 * 1024, // pull cap; content truncated to PREVIEW_TEXT_MAX
+};
+
+const PREVIEW_KINDS = {
+  image: {
+    ext: new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']),
+    mime: (ext) => (
+      ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+        : ext === 'png' ? 'image/png'
+          : ext === 'gif' ? 'image/gif'
+            : ext === 'webp' ? 'image/webp'
+              : ext === 'bmp' ? 'image/bmp'
+                : ext === 'svg' ? 'image/svg+xml'
+                  : 'application/octet-stream'
+    ),
+  },
+  audio: {
+    ext: new Set(['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus']),
+    mime: (ext) => (
+      ext === 'mp3' ? 'audio/mpeg'
+        : ext === 'wav' ? 'audio/wav'
+          : ext === 'flac' ? 'audio/flac'
+            : ext === 'aac' ? 'audio/aac'
+              : ext === 'ogg' ? 'audio/ogg'
+                : ext === 'm4a' ? 'audio/mp4'
+                  : ext === 'opus' ? 'audio/ogg'
+                    : 'audio/mpeg'
+    ),
+  },
+  video: {
+    ext: new Set(['mp4', 'webm', 'mkv', 'mov', '3gp', 'm4v']),
+    mime: (ext) => (
+      ext === 'webm' ? 'video/webm'
+        : ext === 'mkv' ? 'video/x-matroska'
+          : ext === 'mov' ? 'video/quicktime'
+            : ext === '3gp' ? 'video/3gpp'
+              : 'video/mp4'
+    ),
+  },
+  pdf: {
+    ext: new Set(['pdf']),
+    mime: () => 'application/pdf',
+  },
+  text: {
+    ext: new Set(['txt', 'md', 'json', 'xml', 'csv', 'log']),
+    mime: (ext) => (
+      ext === 'json' ? 'application/json'
+        : ext === 'xml' ? 'application/xml'
+          : ext === 'csv' ? 'text/csv'
+            : ext === 'md' ? 'text/markdown'
+              : 'text/plain'
+    ),
+  },
+};
+
+function resolvePreviewKind(ext) {
+  for (const [kind, spec] of Object.entries(PREVIEW_KINDS)) {
+    if (spec.ext.has(ext)) return kind;
+  }
+  return null;
+}
+
+function formatPreviewLimit(bytes) {
+  const mb = Math.round(bytes / (1024 * 1024));
+  return `${mb} MB`;
+}
 
 function getPreviewDir() {
   const dir = path.join(app.getPath('temp'), 'clevenrec-preview');
@@ -1673,6 +1778,26 @@ function clearPreviewDir(exceptFile = null) {
   } catch (_) { /* ignore */ }
 }
 
+function toPreviewMediaUrl(localPath) {
+  return `cleven-preview://preview/?f=${encodeURIComponent(path.basename(localPath))}`;
+}
+
+function readPreviewText(localPath) {
+  const buf = fs.readFileSync(localPath);
+  let text;
+  try {
+    text = buf.toString('utf8');
+    if (text.includes('\uFFFD') && buf.includes(0)) {
+      text = buf.toString('latin1');
+    }
+  } catch (_) {
+    text = buf.toString('latin1');
+  }
+  const truncated = text.length > PREVIEW_TEXT_MAX;
+  if (truncated) text = text.slice(0, PREVIEW_TEXT_MAX);
+  return { text, truncated };
+}
+
 ipcMain.handle('transfer-preview', async (_event, payload = {}) => safeIpc(async () => {
   const remotePath = normalizeDevicePath(payload.remotePath || '');
   if (!remotePath || !isAllowedDevicePath(remotePath)) {
@@ -1680,13 +1805,20 @@ ipcMain.handle('transfer-preview', async (_event, payload = {}) => safeIpc(async
   }
   const baseName = path.posix.basename(remotePath);
   const ext = (baseName.includes('.') ? baseName.split('.').pop() : '').toLowerCase();
-  if (!PREVIEW_IMAGE_EXT.has(ext)) {
-    return { success: false, unsupported: true, message: 'Preview só para imagens.' };
+  const kind = resolvePreviewKind(ext);
+  if (!kind) {
+    return { success: false, unsupported: true, message: 'Preview indisponível para este tipo.' };
   }
 
+  const limit = PREVIEW_LIMITS[kind];
   const sizeHint = Number(payload.size);
-  if (Number.isFinite(sizeHint) && sizeHint > PREVIEW_MAX_BYTES) {
-    return { success: false, tooLarge: true, message: 'Imagem grande demais para preview (>15 MB).' };
+  if (Number.isFinite(sizeHint) && sizeHint > limit) {
+    return {
+      success: false,
+      tooLarge: true,
+      kind,
+      message: `Arquivo grande demais para preview (>${formatPreviewLimit(limit)}).`,
+    };
   }
 
   const info = await getPrimaryDeviceSerial();
@@ -1699,43 +1831,55 @@ ipcMain.handle('transfer-preview', async (_event, payload = {}) => safeIpc(async
   const safeName = baseName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || `preview.${ext}`;
   const localPath = path.join(previewDir, `${Date.now()}-${safeName}`);
 
+  const pullTimeout = kind === 'video' ? 3 * 60 * 1000 : 90 * 1000;
   const result = await runAdb(
     adbPath,
     ['-s', info.serial, 'pull', remotePath, localPath],
-    { timeout: 60 * 1000 }
+    { timeout: pullTimeout }
   );
   if (!result.ok || !fs.existsSync(localPath)) {
     return {
       success: false,
+      kind,
       message: (result.stderr || result.stdout || 'Falha ao puxar preview.').trim().slice(0, 240),
       serial: info.serial,
     };
   }
 
   const stat = fs.statSync(localPath);
-  if (stat.size > PREVIEW_MAX_BYTES) {
+  if (stat.size > limit) {
     try { fs.unlinkSync(localPath); } catch (_) { /* ignore */ }
-    return { success: false, tooLarge: true, message: 'Imagem grande demais para preview (>15 MB).' };
+    return {
+      success: false,
+      tooLarge: true,
+      kind,
+      message: `Arquivo grande demais para preview (>${formatPreviewLimit(limit)}).`,
+    };
   }
 
-  const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-    : ext === 'png' ? 'image/png'
-      : ext === 'gif' ? 'image/gif'
-        : ext === 'webp' ? 'image/webp'
-          : ext === 'bmp' ? 'image/bmp'
-            : ext === 'svg' ? 'image/svg+xml'
-              : 'application/octet-stream';
-  const dataUrl = `data:${mime};base64,${fs.readFileSync(localPath).toString('base64')}`;
-
-  return {
+  const mime = PREVIEW_KINDS[kind].mime(ext);
+  const mediaUrl = toPreviewMediaUrl(localPath);
+  const payloadOut = {
     success: true,
+    kind,
+    mime,
     localPath,
+    mediaUrl,
     url: pathToFileURL(localPath).href,
-    dataUrl,
     name: baseName,
     size: stat.size,
     serial: info.serial,
   };
+
+  if (kind === 'image') {
+    payloadOut.dataUrl = `data:${mime};base64,${fs.readFileSync(localPath).toString('base64')}`;
+  } else if (kind === 'text') {
+    const { text, truncated } = readPreviewText(localPath);
+    payloadOut.text = text;
+    payloadOut.truncated = truncated;
+  }
+
+  return payloadOut;
 }, 'Falha no preview'));
 
 ipcMain.handle('get-app-version', () => app.getVersion());

@@ -20,10 +20,12 @@ set OPENAI_BASE_URL=https://api.openai.com/v1
 set OPENAI_VISION_MODEL=gpt-4o-mini
 ```
 
-## Performance ADB
+## Performance ADB / scrcpy
 
 - **Toques:** preferência `scrcpy` control socket; fallback `AdbShellSession` (um `adb shell` aberto, comandos via stdin — sem spawn por clique).
-- **Captura:** `exec-out` com ordem **gzip -1 → raw → PNG**. O modo usado fica em `AdbFrameSource.last_mode`.
+- **Texto:** scrcpy `inject_text` (≤300 bytes) ou `SET_CLIPBOARD`+paste — sem `adb input text`. Fallback ADB só se o control cair.
+- **Captura (agente):** stream H.264 do **mesmo** scrcpy (`ScrcpyFrameSource`) — sem `screencap` por passo. Fallback ADB: `exec-out` com ordem **gzip -1 → raw → PNG**.
+- Env: `VISION_CAPTURE_BACKEND=auto|scrcpy|adb`, `VISION_SCRCPY_MAX_SIZE=1080`.
 
 ## Captura (Bloco 1)
 
@@ -49,7 +51,7 @@ No ClevenRec, o card **Agente** sobe esse servidor automaticamente (via `.venv`)
 
 ## Arquitetura
 
-1. Captura frame (ADB screencap) → 1080×1920  
+1. Captura frame (stream scrcpy H.264, fallback ADB) → 1080×1920  
 2. Filtro de mudança  
 3. Visão multimodal → JSON (`prompts/system.md`)  
 4. Execução: scrcpy control socket (rápido) com fallback ADB  

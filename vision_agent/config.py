@@ -89,6 +89,48 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
 
-# Loop do agente
-AGENT_STEP_DELAY_S = float(os.environ.get("VISION_AGENT_STEP_DELAY", "0.45"))
+# Loop do agente — settle pós-ação (aguardar UI), não “acelerador de tap”.
+# VISION_AGENT_STEP_DELAY: multiplicador (default 1.0). Valor legado "0.45" → escala 1.0.
+_raw_step_delay = os.environ.get("VISION_AGENT_STEP_DELAY")
+if _raw_step_delay is None:
+    SETTLE_SCALE = 1.0
+else:
+    _parsed = float(_raw_step_delay)
+    SETTLE_SCALE = 1.0 if abs(_parsed - 0.45) < 1e-6 else max(0.1, _parsed)
+
+SETTLE_CLICK_S = 0.22 * SETTLE_SCALE
+SETTLE_SWIPE_S = 0.40 * SETTLE_SCALE
+SETTLE_TEXT_S = 0.35 * SETTLE_SCALE
+SETTLE_IDLE_S = 0.20 * SETTLE_SCALE
+# Alias legado para imports antigos
+AGENT_STEP_DELAY_S = SETTLE_CLICK_S
+
 AGENT_MAX_STEPS = int(os.environ.get("VISION_AGENT_MAX_STEPS", "40"))
+
+# Gestos (scrcpy / ADB)
+TAP_DOWN_UP_S = float(os.environ.get("VISION_TAP_DOWN_UP", "0.02"))
+SCRCPY_SWIPE_MS = int(os.environ.get("VISION_SCRCPY_SWIPE_MS", "280"))
+SCRCPY_SWIPE_STEPS = int(os.environ.get("VISION_SCRCPY_SWIPE_STEPS", "12"))
+ADB_SWIPE_MS = int(os.environ.get("VISION_ADB_SWIPE_MS", "300"))
+LONG_PRESS_MS = int(os.environ.get("VISION_LONG_PRESS_MS", "600"))
+
+# Stream scrcpy (captura): 0 = resolução nativa; >0 limita o lado maior
+SCRCPY_MAX_SIZE = int(os.environ.get("VISION_SCRCPY_MAX_SIZE", "0"))
+SCRCPY_VIDEO_BIT_RATE = int(os.environ.get("VISION_SCRCPY_BITRATE", "8000000"))
+SCRCPY_MAX_FPS = int(os.environ.get("VISION_SCRCPY_MAX_FPS", "60"))
+# auto|scrcpy|adb — captura do agente
+CAPTURE_BACKEND = (os.environ.get("VISION_CAPTURE_BACKEND") or "auto").lower()
+
+
+def settle_for_action(acao: str | None) -> float:
+    """Tempo de settle pós-ação alinhado ao tipo de gesto."""
+    a = (acao or "").strip().lower()
+    if a in ("click", "long_click"):
+        return SETTLE_CLICK_S
+    if a in ("swipe_up", "swipe_down"):
+        return SETTLE_SWIPE_S
+    if a == "write_text":
+        return SETTLE_TEXT_S
+    if a == "aguardar":
+        return SETTLE_IDLE_S
+    return SETTLE_CLICK_S
