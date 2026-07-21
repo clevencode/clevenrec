@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const { spawn, exec, execFile, execFileSync } = require('child_process');
 const { OBSWebSocket } = require('obs-websocket-js');
 const { autoUpdater } = require('electron-updater');
@@ -1047,6 +1048,38 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('Falha ao iniciar servidor remoto:', err.message);
   }
+
+  const smokeArg = process.argv.find((a) => a.startsWith('--smoke-scene='));
+  if (smokeArg) {
+    const sceneId = smokeArg.slice('--smoke-scene='.length).trim();
+    setTimeout(async () => {
+      try {
+        const scene = AUTOMATION_SCENES[sceneId];
+        if (!scene) {
+          console.error('SMOKE_FAIL unknown scene', sceneId);
+          app.exit(2);
+          return;
+        }
+        const info = await getPrimaryDeviceSerial();
+        if (!info.success) {
+          console.error('SMOKE_FAIL', info.message);
+          app.exit(3);
+          return;
+        }
+        console.log('SMOKE_START', sceneId, info.serial);
+        automationRunning = true;
+        automationCancelRequested = false;
+        const result = await scene.run(info.serial, sceneId);
+        console.log('SMOKE_RESULT', JSON.stringify(result));
+        app.exit(result.success ? 0 : 1);
+      } catch (err) {
+        console.error('SMOKE_FAIL', err?.message || err);
+        app.exit(1);
+      } finally {
+        automationRunning = false;
+      }
+    }, 2500);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -1651,6 +1684,309 @@ ipcMain.handle('transfer-pull', async (_event, payload = {}) => safeIpc(async ()
     serial: info.serial,
   };
 }, 'Falha ao baixar arquivo'));
+
+const PREVIEW_MAX_BYTES = 15 * 1024 * 1024;
+const PREVIEW_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']);
+
+function getPreviewDir() {
+  const dir = path.join(app.getPath('temp'), 'clevenrec-preview');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function clearPreviewDir(exceptFile = null) {
+  const dir = getPreviewDir();
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (exceptFile && path.resolve(full) === path.resolve(exceptFile)) continue;
+      try { fs.unlinkSync(full); } catch (_) { /* ignore */ }
+    }
+  } catch (_) { /* ignore */ }
+}
+
+ipcMain.handle('transfer-preview', async (_event, payload = {}) => safeIpc(async () => {
+  const remotePath = normalizeDevicePath(payload.remotePath || '');
+  if (!remotePath || !isAllowedDevicePath(remotePath)) {
+    return { success: false, message: 'Caminho remoto inválido.' };
+  }
+  const baseName = path.posix.basename(remotePath);
+  const ext = (baseName.includes('.') ? baseName.split('.').pop() : '').toLowerCase();
+  if (!PREVIEW_IMAGE_EXT.has(ext)) {
+    return { success: false, unsupported: true, message: 'Preview só para imagens.' };
+  }
+
+  const sizeHint = Number(payload.size);
+  if (Number.isFinite(sizeHint) && sizeHint > PREVIEW_MAX_BYTES) {
+    return { success: false, tooLarge: true, message: 'Imagem grande demais para preview (>15 MB).' };
+  }
+
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+  const previewDir = getPreviewDir();
+  clearPreviewDir();
+
+  const safeName = baseName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || `preview.${ext}`;
+  const localPath = path.join(previewDir, `${Date.now()}-${safeName}`);
+
+  const result = await runAdb(
+    adbPath,
+    ['-s', info.serial, 'pull', remotePath, localPath],
+    { timeout: 60 * 1000 }
+  );
+  if (!result.ok || !fs.existsSync(localPath)) {
+    return {
+      success: false,
+      message: (result.stderr || result.stdout || 'Falha ao puxar preview.').trim().slice(0, 240),
+      serial: info.serial,
+    };
+  }
+
+  const stat = fs.statSync(localPath);
+  if (stat.size > PREVIEW_MAX_BYTES) {
+    try { fs.unlinkSync(localPath); } catch (_) { /* ignore */ }
+    return { success: false, tooLarge: true, message: 'Imagem grande demais para preview (>15 MB).' };
+  }
+
+  const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+    : ext === 'png' ? 'image/png'
+      : ext === 'gif' ? 'image/gif'
+        : ext === 'webp' ? 'image/webp'
+          : ext === 'bmp' ? 'image/bmp'
+            : ext === 'svg' ? 'image/svg+xml'
+              : 'application/octet-stream';
+  const dataUrl = `data:${mime};base64,${fs.readFileSync(localPath).toString('base64')}`;
+
+  return {
+    success: true,
+    localPath,
+    url: pathToFileURL(localPath).href,
+    dataUrl,
+    name: baseName,
+    size: stat.size,
+    serial: info.serial,
+  };
+}, 'Falha no preview'));
+
+/** --- Automações (cenas ADB) --- */
+let automationRunning = false;
+let automationCancelRequested = false;
+
+function emitAutomationProgress(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('automation-progress', payload);
+}
+
+async function adbShell(serial, shellArgs, { timeout = 15000 } = {}) {
+  const adbPath = getAdbPath();
+  const args = ['-s', serial, 'shell', ...shellArgs];
+  return runAdb(adbPath, args, { timeout });
+}
+
+async function adbTap(serial, x, y) {
+  return adbShell(serial, ['input', 'tap', String(x), String(y)]);
+}
+
+async function adbSwipe(serial, x1, y1, x2, y2, durationMs) {
+  return adbShell(serial, [
+    'input', 'swipe',
+    String(x1), String(y1), String(x2), String(y2), String(durationMs),
+  ], { timeout: Math.max(15000, durationMs + 5000) });
+}
+
+async function adbUiDumpText(serial) {
+  await adbShell(serial, ['uiautomator', 'dump', '/sdcard/uidump.xml'], { timeout: 20000 });
+  const res = await adbShell(serial, ['cat', '/sdcard/uidump.xml'], { timeout: 20000 });
+  return `${res.stdout || ''}${res.stderr || ''}`;
+}
+
+function throwIfAutomationCancelled() {
+  if (automationCancelRequested) {
+    const err = new Error('Automação cancelada.');
+    err.code = 'CANCELLED';
+    throw err;
+  }
+}
+
+async function runBibleJean15S21(serial, sceneId) {
+  const pkg = 'com.sirma.mobile.bible.android';
+  const url = 'https://www.bible.com/bible/152/JHN.15.S21';
+  const maxSwipes = Number(process.env.CLEVENREC_SMOKE_MAX) > 0
+    ? Number(process.env.CLEVENREC_SMOKE_MAX)
+    : 35;
+
+  emitAutomationProgress({ sceneId, step: 'open', message: 'Abrindo YouVersion · Jean 15 S21…', done: false });
+  await adbShell(serial, ['input', 'keyevent', 'KEYCODE_WAKEUP']);
+  await sleep(400);
+  await adbShell(serial, ['am', 'force-stop', pkg]);
+  await sleep(600);
+  throwIfAutomationCancelled();
+
+  const start = await adbShell(serial, [
+    'am', 'start',
+    '-a', 'android.intent.action.VIEW',
+    '-d', url,
+    '-p', pkg,
+  ]);
+  if (!start.ok && !(start.stdout || '').includes('Starting')) {
+    // fallback sem -p
+    await adbShell(serial, [
+      'am', 'start',
+      '-a', 'android.intent.action.VIEW',
+      '-d', url,
+    ]);
+  }
+
+  await sleep(5000);
+  throwIfAutomationCancelled();
+
+  emitAutomationProgress({ sceneId, step: 'ready', message: 'Capítulo aberto — iniciando leitura…', done: false });
+  await adbTap(serial, 360, 700);
+  await sleep(800);
+
+  let reachedEnd = false;
+  for (let i = 1; i <= maxSwipes; i++) {
+    throwIfAutomationCancelled();
+
+    let ui = '';
+    try {
+      ui = await adbUiDumpText(serial);
+    } catch (_) {
+      ui = '';
+    }
+
+    const endHit = /LEARN MORE|Société Biblique|Jean\s*16/i.test(ui);
+    if (endHit) {
+      reachedEnd = true;
+      emitAutomationProgress({
+        sceneId,
+        step: 'scroll',
+        message: `Fim do capítulo detectado (passo ${i})`,
+        done: false,
+      });
+      break;
+    }
+
+    emitAutomationProgress({
+      sceneId,
+      step: 'scroll',
+      message: `Lendo… swipe ${i}/${maxSwipes}`,
+      done: false,
+    });
+
+    await adbSwipe(serial, 360, 1050, 360, 780, 1400);
+    await sleep(2800);
+  }
+
+  if (!reachedEnd && !(Number(process.env.CLEVENREC_SMOKE_MAX) > 0)) {
+    // Últimos swipes um pouco maiores para garantir v.27
+    for (let j = 1; j <= 4; j++) {
+      throwIfAutomationCancelled();
+      emitAutomationProgress({
+        sceneId,
+        step: 'scroll',
+        message: `Finalizando leitura… ${j}/4`,
+        done: false,
+      });
+      await adbSwipe(serial, 360, 1100, 360, 650, 1600);
+      await sleep(3000);
+      try {
+        const ui = await adbUiDumpText(serial);
+        if (/LEARN MORE|Société Biblique/i.test(ui)) {
+          reachedEnd = true;
+          break;
+        }
+      } catch (_) { /* ignore */ }
+    }
+  }
+
+  emitAutomationProgress({
+    sceneId,
+    step: 'done',
+    message: reachedEnd
+      ? 'Jean 15 · S21 concluído (fim do capítulo).'
+      : 'Jean 15 · S21: scroll concluído.',
+    done: true,
+  });
+
+  return {
+    success: true,
+    sceneId,
+    reachedEnd,
+    message: reachedEnd
+      ? 'Cena concluída — fim do capítulo.'
+      : 'Cena concluída.',
+  };
+}
+
+const AUTOMATION_SCENES = {
+  'bible-jean15-s21': {
+    id: 'bible-jean15-s21',
+    label: 'Ler Jean 15 · S21',
+    run: runBibleJean15S21,
+  },
+};
+
+ipcMain.handle('automation-list', () => ({
+  success: true,
+  scenes: Object.values(AUTOMATION_SCENES).map(({ id, label }) => ({ id, label })),
+}));
+
+ipcMain.handle('automation-run', async (_event, payload = {}) => safeIpc(async () => {
+  const sceneId = String(payload.sceneId || '').trim();
+  const scene = AUTOMATION_SCENES[sceneId];
+  if (!scene) {
+    return { success: false, message: `Cena desconhecida: ${sceneId || '(vazia)'}` };
+  }
+  if (automationRunning) {
+    return { success: false, message: 'Já existe uma automação em andamento.' };
+  }
+
+  const bins = validateRuntimeBinaries();
+  if (!bins.success) return bins;
+
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+
+  automationRunning = true;
+  automationCancelRequested = false;
+  try {
+    return await scene.run(info.serial, sceneId);
+  } catch (err) {
+    const cancelled = err?.code === 'CANCELLED';
+    emitAutomationProgress({
+      sceneId,
+      step: cancelled ? 'cancelled' : 'error',
+      message: err?.message || 'Falha na automação.',
+      done: true,
+      error: !cancelled,
+    });
+    return {
+      success: cancelled,
+      cancelled,
+      message: err?.message || 'Falha na automação.',
+    };
+  } finally {
+    automationRunning = false;
+    automationCancelRequested = false;
+  }
+}, 'Falha ao executar automação'));
+
+ipcMain.handle('automation-stop', () => {
+  if (!automationRunning) {
+    return { success: false, message: 'Nenhuma automação em execução.' };
+  }
+  automationCancelRequested = true;
+  emitAutomationProgress({
+    sceneId: null,
+    step: 'stopping',
+    message: 'Parando automação…',
+    done: false,
+  });
+  return { success: true, message: 'Parada solicitada.' };
+});
 
 ipcMain.handle('get-app-version', () => app.getVersion());
 

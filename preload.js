@@ -19,11 +19,16 @@ contextBridge.exposeInMainWorld('api', {
   transferChooseSaveDir: () => ipcRenderer.invoke('transfer-choose-save-dir'),
   transferPush: (payload) => ipcRenderer.invoke('transfer-push', payload),
   transferPull: (payload) => ipcRenderer.invoke('transfer-pull', payload),
+  transferPreview: (payload) => ipcRenderer.invoke('transfer-preview', payload),
   openPath: (target) => ipcRenderer.invoke('open-path', target),
+  automationList: () => ipcRenderer.invoke('automation-list'),
+  runAutomation: (sceneId) => ipcRenderer.invoke('automation-run', { sceneId }),
+  stopAutomation: () => ipcRenderer.invoke('automation-stop'),
 
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', (event, data) => callback(data)),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', () => callback()),
   onRecordingError: (callback) => ipcRenderer.on('recording-error', (event, msg) => callback(msg)),
   onStatusText: (callback) => ipcRenderer.on('status-text', (event, text) => callback(text)),
   onUpdateStatus: (callback) => ipcRenderer.on('update-status', (event, data) => callback(data)),
+  onAutomationProgress: (callback) => ipcRenderer.on('automation-progress', (event, data) => callback(data)),
 });

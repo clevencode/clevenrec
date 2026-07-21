@@ -1015,6 +1015,21 @@
       align-items: center;
     }
 
+    .automation-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .automation-hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      min-height: 18px;
+    }
+
     .update-progress {
       height: 4px;
       border-radius: 999px;
@@ -1085,18 +1100,125 @@
       min-width: 0;
       font-family: 'Share Tech Mono', monospace;
       font-size: 11px;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      padding: 0 2px;
+      color: var(--muted);
+      height: auto;
     }
 
-    .transfer-quick {
+    .transfer-path input:focus {
+      color: var(--text);
+      outline: none;
+    }
+
+    .transfer-library {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
+      margin-bottom: 10px;
     }
 
-    .transfer-quick .btn-ghost {
+    .transfer-library .btn-ghost {
       padding: 0 10px;
       height: 32px;
       font-size: 10px;
+      opacity: 0.72;
+    }
+
+    .transfer-library .btn-ghost.is-active {
+      opacity: 1;
+      color: #042218;
+      background:
+        linear-gradient(180deg, #3de8ab 0%, #1fba84 100%);
+      border-color: rgba(0,0,0,0.35);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.25),
+        0 2px 0 #0a4a35;
+    }
+
+    .transfer-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: stretch;
+      min-height: 160px;
+      margin: 0;
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .transfer-preview-frame {
+      width: 100%;
+      min-height: 140px;
+      max-height: 220px;
+      flex-shrink: 0;
+      border-radius: 12px;
+      background: var(--well);
+      border: 1px solid rgba(0,0,0,0.35);
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .transfer-preview-frame img {
+      max-width: 100%;
+      max-height: 200px;
+      object-fit: contain;
+      display: none;
+    }
+
+    .transfer-preview-frame.has-image img {
+      display: block;
+    }
+
+    .transfer-preview-icon {
+      font-size: 28px;
+      opacity: 0.85;
+      color: var(--accent);
+      font-family: 'Share Tech Mono', monospace;
+    }
+
+    .transfer-preview-frame.has-image .transfer-preview-icon {
+      display: none;
+    }
+
+    .transfer-preview-meta {
+      flex: 0 0 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      padding: 0 2px;
+    }
+
+    .transfer-preview-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-word;
+      line-height: 1.3;
+    }
+
+    .transfer-preview-info {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .transfer-preview-empty .transfer-preview-name {
+      color: var(--muted);
+      font-weight: 500;
     }
 
     .transfer-toolbar {
@@ -1488,6 +1610,15 @@
         <input type="checkbox" id="turnScreenOff" hidden>
       </div>
 
+      <div class="card" id="automationCard">
+        <div class="card-title">Automações</div>
+        <div class="automation-actions">
+          <button class="btn-ghost" id="btnAutoJean15" type="button" data-scene="bible-jean15-s21">Ler Jean 15 · S21</button>
+          <button class="btn-ghost" id="btnAutoStop" type="button" disabled>Parar</button>
+        </div>
+        <div class="automation-hint" id="automationHint">Cenas ADB no celular conectado.</div>
+      </div>
+
       <details class="remote-details" id="remoteCard">
         <summary>Controle remoto (QR)</summary>
         <div class="remote-body">
@@ -1540,38 +1671,47 @@
     <div class="transfer-header">
       <div class="brand">
         <div class="brand-name">Files</div>
-        <div class="brand-sub">PC ↔ celular · ADB</div>
+        <div class="brand-sub">mídia · PC ↔ celular</div>
       </div>
       <div class="transfer-device" id="transferDevice">Sem dispositivo</div>
     </div>
 
     <div class="transfer-body">
-      <div class="card">
-        <div class="card-title">Pasta no celular</div>
-        <div class="transfer-path">
-          <input type="text" id="transferPath" value="/sdcard/Download" spellcheck="false" autocomplete="off">
-          <button class="btn-ghost" id="btnTransferUp" type="button" title="Pasta acima">↑</button>
-          <button class="btn-ghost" id="btnTransferRefresh" type="button">Atualizar</button>
-        </div>
-        <div class="transfer-quick" id="transferQuick">
-          <button class="btn-ghost" type="button" data-path="/sdcard/Download">Download</button>
-          <button class="btn-ghost" type="button" data-path="/sdcard/DCIM/Camera">Câmera</button>
-          <button class="btn-ghost" type="button" data-path="/sdcard/Pictures">Imagens</button>
-          <button class="btn-ghost" type="button" data-path="/sdcard/Movies">Vídeos</button>
-          <button class="btn-ghost" type="button" data-path="/sdcard/Music">Áudio</button>
-          <button class="btn-ghost" type="button" data-path="/sdcard/Documents">Docs</button>
+      <div class="card" aria-label="Visualizador de mídia">
+        <div class="card-title">Visualizador</div>
+        <div class="transfer-preview transfer-preview-empty" id="transferPreview" aria-live="polite">
+          <div class="transfer-preview-frame" id="transferPreviewFrame">
+            <span class="transfer-preview-icon" id="transferPreviewIcon">▣</span>
+            <img id="transferPreviewImg" alt="">
+          </div>
+          <div class="transfer-preview-meta">
+            <div class="transfer-preview-name" id="transferPreviewName">Selecione um arquivo</div>
+            <div class="transfer-preview-info" id="transferPreviewInfo">Somente visualização</div>
+          </div>
         </div>
       </div>
 
       <div class="card" style="flex:1; min-height:0; display:flex; flex-direction:column;">
         <div class="transfer-toolbar">
-          <div class="card-title">Conteúdo</div>
+          <div class="card-title">Arquivos</div>
           <div class="transfer-views" id="transferViews" role="group" aria-label="Modo de visualização">
             <button class="btn-ghost is-active" type="button" data-view="list" title="Lista" aria-pressed="true">Lista</button>
             <button class="btn-ghost" type="button" data-view="grid" title="Grade" aria-pressed="false">Grade</button>
           </div>
         </div>
-        <div class="transfer-cats" id="transferCats" role="tablist" aria-label="Categoria">
+        <div class="transfer-library" id="transferLibrary" role="tablist" aria-label="Biblioteca de mídia">
+          <button class="btn-ghost is-active" type="button" data-lib="images" data-path="/sdcard/DCIM/Camera" data-cat="images">Imagens</button>
+          <button class="btn-ghost" type="button" data-lib="videos" data-path="/sdcard/Movies" data-cat="videos">Vídeos</button>
+          <button class="btn-ghost" type="button" data-lib="audio" data-path="/sdcard/Music" data-cat="audio">Áudio</button>
+          <button class="btn-ghost" type="button" data-lib="docs" data-path="/sdcard/Documents" data-cat="docs">Docs</button>
+          <button class="btn-ghost" type="button" data-lib="downloads" data-path="/sdcard/Download" data-cat="all">Downloads</button>
+        </div>
+        <div class="transfer-path" title="Pasta atual">
+          <input type="text" id="transferPath" value="/sdcard/DCIM/Camera" spellcheck="false" autocomplete="off" aria-label="Caminho no celular">
+          <button class="btn-ghost" id="btnTransferUp" type="button" title="Pasta acima">↑</button>
+          <button class="btn-ghost" id="btnTransferRefresh" type="button">Atualizar</button>
+        </div>
+        <div class="transfer-cats" id="transferCats" role="tablist" aria-label="Filtro na pasta">
           <button class="btn-ghost is-active" type="button" data-cat="all">Todos</button>
           <button class="btn-ghost" type="button" data-cat="folders">Pastas</button>
           <button class="btn-ghost" type="button" data-cat="images">Imagens</button>
@@ -1591,7 +1731,7 @@
       <button class="btn-ghost" id="btnTransferPull" type="button">Baixar selecionado</button>
     </div>
     <div class="transfer-hint" id="transferHint">
-      Lista ou grade · clique seleciona · duplo clique abre/baixa · filtros por tipo.
+      Clique num arquivo para ver no visualizador · duplo clique abre/baixa.
     </div>
   </aside>
   </div>
