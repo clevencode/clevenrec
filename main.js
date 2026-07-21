@@ -1988,6 +1988,160 @@ ipcMain.handle('automation-stop', () => {
   return { success: true, message: 'Parada solicitada.' };
 });
 
+/** --- Agente IA (vision_agent :8790) --- */
+let agentServerProcess = null;
+const AGENT_BASE = process.env.VISION_AGENT_URL || 'http://127.0.0.1:8790';
+
+function resolvePythonForAgent() {
+  const root = app.isPackaged ? process.resourcesPath : __dirname;
+  const candidates = [
+    path.join(__dirname, '.venv', 'Scripts', 'python.exe'),
+    path.join(root, '.venv', 'Scripts', 'python.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+    'python',
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    if (c === 'python') return c;
+    if (fs.existsSync(c)) return c;
+  }
+  return 'python';
+}
+
+async function agentFetch(pathname, { method = 'GET', body } = {}) {
+  const url = `${AGENT_BASE}${pathname}`;
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body != null) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!res.ok) {
+    return {
+      success: false,
+      message: data?.detail || data?.message || `HTTP ${res.status}`,
+      data,
+    };
+  }
+  return { success: true, ...data };
+}
+
+async function ensureAgentServer() {
+  try {
+    const health = await agentFetch('/health');
+    if (health.success) {
+      return { success: true, running: true, health };
+    }
+  } catch (_) {
+    // sobe servidor
+  }
+
+  if (agentServerProcess && !agentServerProcess.killed) {
+    // já spawnado — espera health
+    for (let i = 0; i < 20; i++) {
+      await sleep(400);
+      try {
+        const health = await agentFetch('/health');
+        if (health.success) return { success: true, running: true, health };
+      } catch (_) { /* retry */ }
+    }
+  }
+
+  const py = resolvePythonForAgent();
+  const cwd = app.isPackaged ? process.resourcesPath : __dirname;
+  try {
+    agentServerProcess = spawn(
+      py,
+      ['-m', 'vision_agent.server'],
+      {
+        cwd,
+        windowsHide: true,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+    agentServerProcess.stdout?.on('data', (buf) => {
+      console.log('[agent]', buf.toString().trim());
+    });
+    agentServerProcess.stderr?.on('data', (buf) => {
+      console.error('[agent]', buf.toString().trim());
+    });
+    agentServerProcess.on('exit', (code) => {
+      console.log('[agent] exit', code);
+      agentServerProcess = null;
+    });
+  } catch (err) {
+    return {
+      success: false,
+      message: `Não foi possível iniciar o agente Python: ${err.message}`,
+    };
+  }
+
+  for (let i = 0; i < 25; i++) {
+    await sleep(400);
+    try {
+      const health = await agentFetch('/health');
+      if (health.success) return { success: true, running: true, health, spawned: true };
+    } catch (_) { /* retry */ }
+  }
+  return {
+    success: false,
+    message:
+      'Servidor do agente não respondeu em :8790. Verifique .venv e: pip install -r vision_agent/requirements.txt',
+  };
+}
+
+ipcMain.handle('agent-ensure-server', async () => safeIpc(
+  () => ensureAgentServer(),
+  'Falha ao garantir servidor do agente'
+));
+
+ipcMain.handle('agent-start', async (_event, payload = {}) => safeIpc(async () => {
+  const ready = await ensureAgentServer();
+  if (!ready.success) return ready;
+  const objetivo = String(payload.objetivo || '').trim();
+  if (!objetivo) return { success: false, message: 'Informe um objetivo.' };
+  const result = await agentFetch('/agent/start', {
+    method: 'POST',
+    body: { objetivo, serial: payload.serial || null },
+  });
+  return result;
+}, 'Falha ao iniciar agente'));
+
+ipcMain.handle('agent-stop', async () => safeIpc(async () => {
+  try {
+    return await agentFetch('/agent/stop', { method: 'POST', body: {} });
+  } catch (err) {
+    return { success: false, message: err?.message || 'Agente offline.' };
+  }
+}, 'Falha ao parar agente'));
+
+ipcMain.handle('agent-status', async () => safeIpc(async () => {
+  try {
+    return await agentFetch('/agent/status');
+  } catch (err) {
+    return {
+      success: false,
+      running: false,
+      status: 'offline',
+      message: err?.message || 'Agente offline.',
+    };
+  }
+}, 'Falha ao consultar agente'));
+
+app.on('before-quit', () => {
+  if (agentServerProcess && !agentServerProcess.killed) {
+    try { agentServerProcess.kill(); } catch (_) { /* ignore */ }
+  }
+});
+
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('get-update-status', () => ({

@@ -73,6 +73,11 @@ const els = {
   btnAutoJean15: document.getElementById('btnAutoJean15'),
   btnAutoStop: document.getElementById('btnAutoStop'),
   automationHint: document.getElementById('automationHint'),
+  agentGoal: document.getElementById('agentGoal'),
+  btnAgentStart: document.getElementById('btnAgentStart'),
+  btnAgentStop: document.getElementById('btnAgentStop'),
+  agentStatusLine: document.getElementById('agentStatusLine'),
+  agentLog: document.getElementById('agentLog'),
 };
 
 let mode = 'record';
@@ -1693,3 +1698,126 @@ if (els.btnAutoStop) {
     }
   });
 }
+
+/** --- Agente IA (central) --- */
+let agentBusy = false;
+let agentPollTimer = null;
+
+function setAgentBusy(busy) {
+  agentBusy = !!busy;
+  if (els.btnAgentStart) els.btnAgentStart.disabled = agentBusy;
+  if (els.btnAgentStop) els.btnAgentStop.disabled = !agentBusy;
+  if (els.agentGoal) els.agentGoal.disabled = agentBusy;
+}
+
+function setAgentStatusLine(text) {
+  if (els.agentStatusLine) els.agentStatusLine.textContent = text || '';
+}
+
+function renderAgentLog(entries) {
+  if (!els.agentLog) return;
+  const lines = (entries || []).slice(-12).map((e) => {
+    const ev = e.event || '';
+    if (ev === 'decision') {
+      const d = e.decision || {};
+      return `#${e.step || '?'} ${d.acao || '?'} — ${d.pensamento || ''}`;
+    }
+    if (ev === 'exec') {
+      const r = e.result || {};
+      return `  exec ${r.acao || ''} via ${r.backend || '?'}${r.ok === false ? ' FAIL' : ''}`;
+    }
+    if (ev === 'error') return `erro: ${e.message || ''}`;
+    if (ev === 'concluido') return 'concluído';
+    if (ev === 'ready') return `pronto · backend=${e.backend || '?'}`;
+    return ev;
+  });
+  els.agentLog.textContent = lines.join('\n') || '—';
+}
+
+async function pollAgentStatus() {
+  if (!window.api.agentStatus) return;
+  try {
+    const st = await window.api.agentStatus();
+    if (!st) return;
+    const running = !!st.running;
+    setAgentBusy(running);
+    const bits = [
+      st.status || 'idle',
+      st.backend ? `backend ${st.backend}` : null,
+      st.last_acao ? `ação ${st.last_acao}` : null,
+      st.message || null,
+    ].filter(Boolean);
+    setAgentStatusLine(bits.join(' · '));
+    renderAgentLog(st.log || []);
+    if (!running && agentPollTimer) {
+      clearInterval(agentPollTimer);
+      agentPollTimer = null;
+    }
+  } catch (_) { /* ignore */ }
+}
+
+function startAgentPolling() {
+  if (agentPollTimer) clearInterval(agentPollTimer);
+  agentPollTimer = setInterval(pollAgentStatus, 800);
+  pollAgentStatus();
+}
+
+if (els.btnAgentStart) {
+  els.btnAgentStart.addEventListener('click', async () => {
+    if (agentBusy || !window.api.agentStart) return;
+    const objetivo = (els.agentGoal?.value || '').trim();
+    if (!objetivo) {
+      setAgentStatusLine('Digite um objetivo.');
+      return;
+    }
+    setAgentBusy(true);
+    setAgentStatusLine('Subindo agente…');
+    try {
+      if (window.api.agentEnsureServer) {
+        const ready = await window.api.agentEnsureServer();
+        if (!ready?.success) {
+          setAgentStatusLine(ready?.message || 'Servidor do agente indisponível.');
+          setAgentBusy(false);
+          return;
+        }
+        if (ready.health && ready.health.brain_configured === false) {
+          setAgentStatusLine('AVISO: OPENAI_API_KEY não configurada no ambiente.');
+        }
+      }
+      const result = await window.api.agentStart({ objetivo });
+      if (!result?.success && result?.ok === false) {
+        setAgentStatusLine(result?.message || 'Falha ao iniciar.');
+        setAgentBusy(false);
+        return;
+      }
+      if (result?.ok === false) {
+        setAgentStatusLine(result?.message || 'Falha ao iniciar.');
+        setAgentBusy(false);
+        return;
+      }
+      setAgentStatusLine('Missão em andamento…');
+      startAgentPolling();
+    } catch (err) {
+      setAgentStatusLine(err?.message || 'Falha ao iniciar agente.');
+      setAgentBusy(false);
+    }
+  });
+}
+
+if (els.btnAgentStop) {
+  els.btnAgentStop.addEventListener('click', async () => {
+    if (!window.api.agentStop) return;
+    setAgentStatusLine('Parando…');
+    try {
+      await window.api.agentStop();
+    } catch (_) { /* ignore */ }
+    startAgentPolling();
+  });
+}
+
+// Sobe o servidor do agente em background (best-effort)
+setTimeout(() => {
+  if (window.api.agentEnsureServer) {
+    window.api.agentEnsureServer().catch(() => {});
+  }
+}, 2500);

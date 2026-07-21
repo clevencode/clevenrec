@@ -1,14 +1,6 @@
-# vision_agent — Bloco 1
+# vision_agent — Bloco 1 + Central de Agente
 
-Captura de tela via ADB + filtro de estabilidade (OpenCV).  
-Ainda **não** chama API de IA (Bloco 3) nem injeta toques via scrcpy TCP (Bloco 5).
-
-## Fluxo
-
-1. `adb exec-out screencap -p` → frame BGR  
-2. Resize para **1080×1920**  
-3. Compara com o último frame aprovado (absdiff)  
-4. Se mudança ≥ 2%, grava JPEG em `frames/` e loga JSON  
+Captura ADB + filtro de estabilidade + **agente IA** (visão → JSON → toque scrcpy/ADB).
 
 ## Setup
 
@@ -19,23 +11,44 @@ python -m venv .venv
 pip install -r vision_agent\requirements.txt
 ```
 
-Requer `adb` (vem com scrcpy) e celular com depuração USB (ou `adb connect IP:5555`).
+Defina a chave da IA (OpenAI-compatible):
 
-## Uso
+```bash
+set OPENAI_API_KEY=sk-...
+rem opcional:
+set OPENAI_BASE_URL=https://api.openai.com/v1
+set OPENAI_VISION_MODEL=gpt-4o-mini
+```
 
-Na raiz do repo:
+## Captura (Bloco 1)
 
 ```bash
 python -m vision_agent.loop
-python -m vision_agent.loop --show
-python -m vision_agent.loop --serial LMK410HMYP8HSWCIUO --max-frames 5
+python -m vision_agent.loop --show --max-frames 5
 ```
 
-Variáveis opcionais:
+## Servidor do agente (central)
 
-- `VISION_ADB_SERIAL` — serial padrão  
-- `ADB_PATH` — caminho do `adb.exe`  
+```bash
+python -m vision_agent.server
+```
 
-## Prompt (stub)
+API em `http://127.0.0.1:8790`:
 
-Ver [prompts/system.md](prompts/system.md) — schema JSON das ações para o Bloco 3.
+- `GET /health`
+- `POST /agent/start` `{"objetivo":"..."}`
+- `POST /agent/stop`
+- `GET /agent/status`
+
+No ClevenRec, o card **Agente** sobe esse servidor automaticamente (via `.venv`).
+
+## Arquitetura
+
+1. Captura frame (ADB screencap) → 1080×1920  
+2. Filtro de mudança  
+3. Visão multimodal → JSON (`prompts/system.md`)  
+4. Execução: scrcpy control socket (rápido) com fallback ADB  
+
+## Prompt
+
+Ver [prompts/system.md](prompts/system.md).

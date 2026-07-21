@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('api', {
   automationList: () => ipcRenderer.invoke('automation-list'),
   runAutomation: (sceneId) => ipcRenderer.invoke('automation-run', { sceneId }),
   stopAutomation: () => ipcRenderer.invoke('automation-stop'),
+  agentStart: (payload) => ipcRenderer.invoke('agent-start', payload),
+  agentStop: () => ipcRenderer.invoke('agent-stop'),
+  agentStatus: () => ipcRenderer.invoke('agent-status'),
+  agentEnsureServer: () => ipcRenderer.invoke('agent-ensure-server'),
 
   onRecordingStarted: (callback) => ipcRenderer.on('recording-started', (event, data) => callback(data)),
   onRecordingStopped: (callback) => ipcRenderer.on('recording-stopped', () => callback()),
