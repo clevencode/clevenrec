@@ -79,6 +79,8 @@ const els = {
 
 let mode = 'capture';
 let connection = 'usb';
+/** Último feedback de conexão (não apagar ao só redesenhar a UI). */
+let connFeedback = { text: '', state: '' };
 let screenBehavior = 'keep'; // keep | default | off
 let isActive = false;
 let isConnecting = false;
@@ -235,7 +237,7 @@ function updateWifiFieldUI() {
   els.wifiAddress.setAttribute('aria-invalid', 'false');
 
   if (parsed.empty) {
-    els.wifiHint.textContent = 'Digite só o IP. Na 1ª vez, deixe o USB ligado para autorizar.';
+    els.wifiHint.textContent = 'Digite só o IP. Na 1ª vez, USB + Depuração para autorizar (tcpip 5555).';
     if (els.btnConnectWifi) els.btnConnectWifi.disabled = isActive || isConnecting;
     return;
   }
@@ -377,9 +379,21 @@ function getSettings() {
 
 function setConnStatus(text, state = '') {
   if (!els.connStatus) return;
-  els.connStatus.textContent = text;
+  const full = String(text || '');
+  const compact = full.split('\n')[0].trim() || full;
+  els.connStatus.textContent = compact;
+  els.connStatus.title = full.includes('\n') ? full : '';
   els.connStatus.classList.remove('ok', 'error', 'busy');
   if (state) els.connStatus.classList.add(state);
+  if (state === 'ok' || state === 'error' || state === 'busy') {
+    connFeedback = { text: compact, state, detail: full };
+  }
+}
+
+function idleConnHint(isWifi = connection === 'wifi') {
+  return isWifi
+    ? 'Wi‑Fi: informe o IP ou conecte com USB na 1ª vez'
+    : 'USB pronto — usa o cabo com depuração ativa';
 }
 
 function applyModeUI() {
@@ -400,7 +414,7 @@ function applyModeUI() {
   syncScreenUI();
 }
 
-function applyConnectionUI() {
+function applyConnectionUI({ preserveStatus = false } = {}) {
   const isWifi = connection === 'wifi';
   els.connUsb.classList.toggle('active', !isWifi);
   els.connWifi.classList.toggle('active', isWifi);
@@ -412,11 +426,11 @@ function applyConnectionUI() {
   });
 
   if (!isConnecting) {
-    setConnStatus(
-      isWifi
-        ? 'Wi‑Fi: informe o IP ou conecte com USB na 1ª vez'
-        : 'USB pronto — usa o cabo com depuração ativa'
-    );
+    if (preserveStatus && (connFeedback.state === 'ok' || connFeedback.state === 'error')) {
+      setConnStatus(connFeedback.detail || connFeedback.text, connFeedback.state);
+    } else {
+      setConnStatus(idleConnHint(isWifi));
+    }
   }
 
   applyModeUI();
@@ -690,7 +704,6 @@ async function switchConnection(next) {
     const parsed = parseWifiAddress(els.wifiAddress.value);
     if (!parsed.empty && !parsed.valid) {
       updateWifiFieldUI();
-      applyConnectionUI();
       connection = 'wifi';
       applyConnectionUI();
       els.wifiAddress.focus();
@@ -699,6 +712,7 @@ async function switchConnection(next) {
   }
 
   connection = next;
+  connFeedback = { text: '', state: '' };
   applyConnectionUI();
   isConnecting = true;
   setControlsEnabled(false);
@@ -716,15 +730,17 @@ async function switchConnection(next) {
   window.api.saveSettings(getSettings());
 
   if (result.wifiAddress && els.wifiAddress) {
-    els.wifiAddress.value = String(result.wifiAddress).replace(/:5555$/, '');
+    const parsed = parseWifiAddress(result.wifiAddress);
+    els.wifiAddress.value = parsed.valid && !parsed.empty ? parsed.host : String(result.wifiAddress).replace(/:\d+$/, '');
   }
 
   setControlsEnabled(!isActive);
-  applyConnectionUI();
+  applyConnectionUI({ preserveStatus: true });
   updateWifiFieldUI();
 
   if (result.success) {
-    setConnStatus(result.message || (next === 'wifi' ? 'Wi‑Fi conectado' : 'USB ativo'), 'ok');
+    const msg = result.message || (next === 'wifi' ? 'Wi‑Fi conectado' : 'USB ativo');
+    setConnStatus(msg, 'ok');
   } else {
     setConnStatus(result.message || 'Falha na conexão', 'error');
   }

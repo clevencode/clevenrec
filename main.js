@@ -532,6 +532,7 @@ const config = {
   mode: 'capture',
   connection: 'usb', // 'usb' | 'wifi'
   wifiAddress: '',
+  activeSerial: '', // serial ADB escolhido (USB ou host:porta)
   bitrate: '6000K',
   maxFps: '30',
   format: 'mkv',
@@ -745,12 +746,39 @@ function getSettingsSnapshot() {
   };
 }
 
-function applySettings(settings = {}) {
+function settingsFilePath() {
+  return path.join(app.getPath('userData'), 'clevenrec-settings.json');
+}
+
+function loadPersistedSettings() {
+  try {
+    const file = settingsFilePath();
+    if (!fs.existsSync(file)) return;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (data && typeof data === 'object') applySettings(data, { persist: false });
+  } catch (err) {
+    console.warn('Não foi possível carregar settings:', err?.message || err);
+  }
+}
+
+function persistSettings() {
+  try {
+    fs.writeFileSync(settingsFilePath(), JSON.stringify(getSettingsSnapshot(), null, 2), 'utf8');
+  } catch (err) {
+    console.warn('Não foi possível salvar settings:', err?.message || err);
+  }
+}
+
+function applySettings(settings = {}, { persist = true } = {}) {
   const audioSource = normalizeAudioSource(settings, config.audioSource);
+  const wifiRaw = settings.wifiAddress != null ? String(settings.wifiAddress).trim() : config.wifiAddress;
+  const wifi = normalizeWifiEndpoint(wifiRaw);
   Object.assign(config, {
     mode: settings.mode ?? config.mode,
-    connection: settings.connection ?? config.connection,
-    wifiAddress: settings.wifiAddress != null ? String(settings.wifiAddress).trim() : config.wifiAddress,
+    connection: settings.connection === 'wifi' || settings.connection === 'usb'
+      ? settings.connection
+      : config.connection,
+    wifiAddress: wifi.empty ? (settings.wifiAddress != null ? '' : config.wifiAddress) : wifi.display,
     bitrate: settings.bitrate ?? config.bitrate,
     maxFps: String(settings.maxFps ?? config.maxFps),
     format: settings.format ?? config.format,
@@ -760,6 +788,7 @@ function applySettings(settings = {}) {
     stayAwake: settings.stayAwake ?? config.stayAwake,
     turnScreenOff: settings.turnScreenOff ?? config.turnScreenOff,
   });
+  if (persist) persistSettings();
   return getSettingsSnapshot();
 }
 
@@ -777,15 +806,88 @@ function runAdb(adbPath, args, { timeout = 15000 } = {}) {
   });
 }
 
-function parseAdbDevices(stdout) {
-  return stdout.split('\n')
-    .slice(1)
-    .map((l) => l.trim())
-    .filter((l) => l && /\tdevice$/.test(l))
-    .map((l) => {
-      const serial = l.split(/\s+/)[0];
-      return { serial, isWifi: serial.includes(':') };
+/** Normaliza IP/endpoint Wi‑Fi (host + porta). Guarda só o host em config.wifiAddress. */
+function normalizeWifiEndpoint(raw) {
+  const value = String(raw || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/,/g, '.');
+  if (!value) {
+    return { empty: true, host: '', port: '5555', full: '', display: '' };
+  }
+  let host = value;
+  let port = '5555';
+  const colon = value.lastIndexOf(':');
+  if (colon > 0) {
+    const maybeHost = value.slice(0, colon);
+    const maybePort = value.slice(colon + 1);
+    if (/^\d{1,5}$/.test(maybePort) && Number(maybePort) >= 1 && Number(maybePort) <= 65535) {
+      host = maybeHost;
+      port = maybePort;
+    }
+  }
+  return {
+    empty: false,
+    host,
+    port,
+    full: `${host}:${port}`,
+    display: host,
+  };
+}
+
+/**
+ * Parseia `adb devices`.
+ * @param {string} stdout
+ * @param {{ readyOnly?: boolean }} [opts] readyOnly=true → só state=device (legado)
+ */
+function parseAdbDevices(stdout, { readyOnly = true } = {}) {
+  const rows = [];
+  for (const line of String(stdout || '').split('\n').slice(1)) {
+    const l = line.trim();
+    if (!l) continue;
+    const parts = l.split(/\s+/);
+    const serial = parts[0];
+    const state = parts[1] || '';
+    if (!serial || serial === 'List') continue;
+    rows.push({
+      serial,
+      state,
+      isWifi: serial.includes(':'),
+      ready: state === 'device',
     });
+  }
+  return readyOnly ? rows.filter((d) => d.ready) : rows;
+}
+
+function pickDeviceForMode(devices, mode, wifiAddress = '') {
+  const preferWifi = mode === 'wifi';
+  const ready = (devices || []).filter((d) => d.ready !== false);
+  if (preferWifi) {
+    const ep = normalizeWifiEndpoint(wifiAddress);
+    if (!ep.empty) {
+      const exact = ready.find((d) => d.isWifi && (d.serial === ep.full || d.serial.startsWith(`${ep.host}:`)));
+      if (exact) return exact;
+    }
+    return ready.find((d) => d.isWifi) || null;
+  }
+  return ready.find((d) => !d.isWifi) || null;
+}
+
+function describeAdbBlockers(allDevices, mode) {
+  const scoped = (allDevices || []).filter((d) => (mode === 'wifi' ? d.isWifi : !d.isWifi));
+  const unauthorized = scoped.filter((d) => d.state === 'unauthorized');
+  const offline = scoped.filter((d) => d.state === 'offline');
+  if (unauthorized.length) {
+    return mode === 'usb'
+      ? 'Celular no cabo, mas ADB não autorizado.\n\nDesbloqueie a tela e toque em “Permitir depuração USB”.'
+      : `Dispositivo Wi‑Fi não autorizado (${unauthorized[0].serial}).\n\nReconecte com USB uma vez e aceite o aviso.`;
+  }
+  if (offline.length) {
+    return mode === 'usb'
+      ? 'Celular offline no ADB.\n\nTroque o cabo/porta USB ou desative/ative Depuração USB.'
+      : `Wi‑Fi offline (${offline[0].serial}).\n\nToque em Conectar de novo ou use USB para reativar tcpip 5555.`;
+  }
+  return null;
 }
 
 function binaryLooksAvailable(binPath) {
@@ -900,107 +1002,170 @@ async function detectDeviceWifiIp(adbPath, serial) {
 }
 
 /**
- * USB  → ativa depuração por cabo (adb usb)
- * Wi‑Fi → ativa ADB TCP (adb tcpip 5555 + adb connect)
+ * USB  → garante aparelho pronto no cabo
+ * Wi‑Fi → tcpip 5555 (se USB disponível) + adb connect IP:porta
+ * Retorna devices (seriais prontos) + serial escolhido para scrcpy/transferência.
  */
 async function activateConnection(connection, wifiAddress = '') {
   const adbPath = getAdbPath();
   const mode = connection === 'wifi' ? 'wifi' : 'usb';
   config.connection = mode;
+
   if (wifiAddress != null && String(wifiAddress).trim()) {
-    config.wifiAddress = String(wifiAddress).trim();
+    const ep = normalizeWifiEndpoint(wifiAddress);
+    config.wifiAddress = ep.empty ? '' : ep.display;
   }
 
-  if (mode === 'usb') {
-    await runAdb(adbPath, ['usb']);
-    await sleep(1200);
-
+  const listAll = async () => {
     const listed = await runAdb(adbPath, ['devices']);
-    const usbDevices = parseAdbDevices(listed.stdout).filter((d) => !d.isWifi);
+    return parseAdbDevices(listed.stdout, { readyOnly: false });
+  };
 
-    if (usbDevices.length === 0) {
+  if (mode === 'usb') {
+    let all = await listAll();
+    let usbReady = all.filter((d) => !d.isWifi && d.ready);
+
+    // Só força `adb usb` se ainda não há USB pronto (evita reinício desnecessário)
+    if (usbReady.length === 0) {
+      await runAdb(adbPath, ['usb']);
+      await sleep(1200);
+      all = await listAll();
+      usbReady = all.filter((d) => !d.isWifi && d.ready);
+    }
+
+    if (usbReady.length === 0) {
+      const blocker = describeAdbBlockers(all, 'usb');
       return {
         success: false,
         connection: 'usb',
-        message: 'Modo USB ativado, mas nenhum aparelho no cabo.\n\nConecte o USB, ative Depuração USB e aceite o aviso no celular.'
+        message: blocker
+          || 'Nenhum aparelho USB pronto.\n\nConecte o cabo, ative Depuração USB e aceite o aviso no celular.',
       };
     }
 
+    const chosen = usbReady[0];
+    config.activeSerial = chosen.serial;
     return {
       success: true,
       connection: 'usb',
-      devices: usbDevices.map((d) => d.serial),
-      message: `Depuração USB ativa · ${usbDevices.length} dispositivo(s)`
+      serial: chosen.serial,
+      devices: usbReady.map((d) => d.serial),
+      message: usbReady.length === 1
+        ? `USB ativo · ${chosen.serial}`
+        : `USB ativo · ${usbReady.length} dispositivos (usando ${chosen.serial})`,
     };
   }
 
   // --- Wi‑Fi / ADB TCP ---
-  let listed = await runAdb(adbPath, ['devices']);
-  let devices = parseAdbDevices(listed.stdout);
-  let usbDevices = devices.filter((d) => !d.isWifi);
+  let all = await listAll();
+  let usbReady = all.filter((d) => !d.isWifi && d.ready);
+  const wanted = normalizeWifiEndpoint(config.wifiAddress);
 
-  // Se ainda há USB, liga o daemon em TCP (necessário na 1ª vez)
-  if (usbDevices.length > 0) {
-    const serial = usbDevices[0].serial;
+  // Já conectado no endpoint desejado?
+  const already = pickDeviceForMode(
+    all.filter((d) => d.ready),
+    'wifi',
+    config.wifiAddress
+  );
+  if (already && (wanted.empty || already.serial === wanted.full || already.serial.startsWith(`${wanted.host}:`))) {
+    config.activeSerial = already.serial;
+    config.wifiAddress = normalizeWifiEndpoint(already.serial).display;
+    return {
+      success: true,
+      connection: 'wifi',
+      serial: already.serial,
+      wifiAddress: config.wifiAddress,
+      devices: all.filter((d) => d.isWifi && d.ready).map((d) => d.serial),
+      message: `ADB Wi‑Fi já conectado · ${already.serial}`,
+    };
+  }
+
+  // 1ª vez / reativação: USB no cabo → tcpip 5555 + descobrir IP
+  if (usbReady.length > 0) {
+    const serial = usbReady[0].serial;
     const tcpip = await runAdb(adbPath, ['-s', serial, 'tcpip', '5555']);
     const tcpOut = `${tcpip.stdout} ${tcpip.stderr}`;
     if (!/restarting|5555/i.test(tcpOut) && tcpip.error) {
       return {
         success: false,
         connection: 'wifi',
-        message: `Falha ao ativar ADB Wi‑Fi (tcpip 5555).\n\n${tcpOut.trim() || 'Conecte o USB uma vez para autorizar.'}`
+        message: `Falha ao ativar ADB Wi‑Fi (tcpip 5555).\n\n${tcpOut.trim() || 'Conecte o USB uma vez para autorizar.'}`,
       };
     }
     await sleep(1500);
 
-    if (!config.wifiAddress) {
+    if (wanted.empty) {
       const ip = await detectDeviceWifiIp(adbPath, serial);
-      if (ip) config.wifiAddress = ip;
+      if (ip) {
+        config.wifiAddress = ip;
+      }
     }
   }
 
-  let targetHost = config.wifiAddress;
-  if (!targetHost) {
-    // já pode existir um device wifi conectado
-    listed = await runAdb(adbPath, ['devices']);
-    const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
-    if (wifiDevices.length > 0) {
+  const targetEp = normalizeWifiEndpoint(config.wifiAddress);
+  if (targetEp.empty) {
+    all = await listAll();
+    const wifiReady = all.filter((d) => d.isWifi && d.ready);
+    if (wifiReady.length > 0) {
+      const chosen = wifiReady[0];
+      config.activeSerial = chosen.serial;
+      config.wifiAddress = normalizeWifiEndpoint(chosen.serial).display;
       return {
         success: true,
         connection: 'wifi',
-        wifiAddress: wifiDevices[0].serial,
-        devices: wifiDevices.map((d) => d.serial),
-        message: `ADB Wi‑Fi já conectado · ${wifiDevices[0].serial}`
+        serial: chosen.serial,
+        wifiAddress: config.wifiAddress,
+        devices: wifiReady.map((d) => d.serial),
+        message: `ADB Wi‑Fi já conectado · ${chosen.serial}`,
       };
     }
+    const blocker = describeAdbBlockers(all, 'usb');
     return {
       success: false,
       connection: 'wifi',
-      message: 'Informe o IP do celular (ex.: 192.168.0.20).\n\nNa 1ª vez: deixe o USB conectado, o app ativa adb tcpip 5555 e detecta o IP.'
+      message: blocker
+        || 'Informe o IP do celular (ex.: 192.168.0.20).\n\nNa 1ª vez: deixe o USB conectado — o app ativa tcpip 5555 e tenta detectar o IP.',
     };
   }
 
-  const target = targetHost.includes(':') ? targetHost : `${targetHost}:5555`;
+  const target = targetEp.full;
   const connect = await runAdb(adbPath, ['connect', target]);
   const connectOut = `${connect.stdout} ${connect.stderr}`;
   if (!/connected|already connected/i.test(connectOut)) {
+    all = await listAll();
+    const blocker = describeAdbBlockers(all, 'wifi');
     return {
       success: false,
       connection: 'wifi',
       wifiAddress: config.wifiAddress,
-      message: `Não conectou em ${target}.\n\n1. USB uma vez + Depuração USB\n2. Mesmo Wi‑Fi do PC\n3. Confirme o IP\n\n${connectOut.trim()}`
+      message: blocker
+        || `Não conectou em ${target}.\n\n1. USB uma vez + Depuração USB\n2. Mesmo Wi‑Fi do PC\n3. Confirme o IP\n\n${connectOut.trim()}`,
     };
   }
 
-  listed = await runAdb(adbPath, ['devices']);
-  const wifiDevices = parseAdbDevices(listed.stdout).filter((d) => d.isWifi);
+  all = await listAll();
+  const wifiReady = all.filter((d) => d.isWifi && d.ready);
+  const chosen = pickDeviceForMode(wifiReady, 'wifi', target) || wifiReady[0] || null;
+
+  if (!chosen) {
+    return {
+      success: false,
+      connection: 'wifi',
+      wifiAddress: config.wifiAddress,
+      message: `adb connect ok em ${target}, mas o dispositivo ainda não aparece como “device”.\n\nAguarde 2s e toque em Conectar de novo.`,
+    };
+  }
+
+  config.activeSerial = chosen.serial;
+  config.wifiAddress = normalizeWifiEndpoint(chosen.serial).display;
 
   return {
     success: true,
     connection: 'wifi',
+    serial: chosen.serial,
     wifiAddress: config.wifiAddress,
-    devices: wifiDevices.map((d) => d.serial),
-    message: `ADB Wi‑Fi ativo · ${target}`
+    devices: wifiReady.map((d) => d.serial),
+    message: `ADB Wi‑Fi ativo · ${chosen.serial}`,
   };
 }
 
@@ -1045,6 +1210,7 @@ app.whenReady().then(async () => {
   });
 
   initRuntimePaths();
+  loadPersistedSettings();
   createSplash();
   createWindow();
   initAutoUpdater();
@@ -1139,13 +1305,14 @@ async function startSession(options = {}) {
       return activated;
     }
     if (activated.wifiAddress) {
-      config.wifiAddress = activated.wifiAddress.replace(/:5555$/, '');
+      config.wifiAddress = normalizeWifiEndpoint(activated.wifiAddress).display;
     }
 
     const useWifi = config.connection === 'wifi';
     let matching = (activated.devices || []).map((serial) => ({
       serial,
       isWifi: String(serial).includes(':'),
+      ready: true,
     })).filter((d) => (useWifi ? d.isWifi : !d.isWifi));
 
     if (matching.length === 0) {
@@ -1153,14 +1320,22 @@ async function startSession(options = {}) {
       matching = parseAdbDevices(listed.stdout).filter((d) => (useWifi ? d.isWifi : !d.isWifi));
     }
 
-    if (matching.length === 0) {
+    const chosen =
+      (activated.serial && matching.find((d) => d.serial === activated.serial))
+      || pickDeviceForMode(matching, useWifi ? 'wifi' : 'usb', config.wifiAddress)
+      || matching[0]
+      || null;
+
+    if (!chosen) {
       return {
         success: false,
         message: useWifi
           ? 'ADB Wi‑Fi ativo, mas nenhum dispositivo TCP encontrado.'
-          : 'Depuração USB ativa, mas nenhum aparelho no cabo.'
+          : 'Depuração USB ativa, mas nenhum aparelho no cabo.',
       };
     }
+
+    config.activeSerial = chosen.serial;
 
     // 2. OBS (áudio do PC: interno ou microfone)
     sessionObsLaunchedByApp = false;
@@ -1203,10 +1378,8 @@ async function startSession(options = {}) {
       obsStartTime = null;
     }
 
-    // 3. Scrcpy
-    const scrcpyArgs = [
-      useWifi ? '-e' : '-d',
-    ];
+    // 3. Scrcpy — sempre -s <serial> (alinhado ao modo USB/Wi‑Fi escolhido)
+    const scrcpyArgs = ['-s', chosen.serial];
 
     if (sessionAudioSource === 'phone') {
       // Áudio interno do celular (playback) embutido no mesmo arquivo
@@ -1527,11 +1700,21 @@ async function getPrimaryDeviceSerial() {
   const listed = await runAdb(adbPath, ['devices']);
   const devices = parseAdbDevices(listed.stdout || '');
   if (!devices.length) {
-    return { success: false, message: 'Nenhum dispositivo ADB conectado.', devices: [] };
+    const all = parseAdbDevices(listed.stdout || '', { readyOnly: false });
+    const blocker = describeAdbBlockers(all, config.connection);
+    return {
+      success: false,
+      message: blocker || 'Nenhum dispositivo ADB conectado.',
+      devices: [],
+    };
   }
-  // Prefer USB (sem :) when available
-  const usb = devices.find((d) => !d.isWifi);
-  const chosen = usb || devices[0];
+
+  // Respeita o modo de conexão do painel (Wi‑Fi ≠ preferir USB às cegas)
+  const chosen =
+    pickDeviceForMode(devices, config.connection, config.wifiAddress)
+    || (config.activeSerial && devices.find((d) => d.serial === config.activeSerial))
+    || devices[0];
+
   return { success: true, serial: chosen.serial, devices };
 }
 
