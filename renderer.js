@@ -54,9 +54,9 @@ const els = {
   btnOpenReleases: document.getElementById('btnOpenReleases'),
   transferDevice: document.getElementById('transferDevice'),
   transferPath: document.getElementById('transferPath'),
+  transferCrumb: document.getElementById('transferCrumb'),
   transferList: document.getElementById('transferList'),
   transferHint: document.getElementById('transferHint'),
-  transferLibrary: document.getElementById('transferLibrary'),
   transferCats: document.getElementById('transferCats'),
   transferViews: document.getElementById('transferViews'),
   transferPreview: document.getElementById('transferPreview'),
@@ -70,17 +70,9 @@ const els = {
   btnTransferPush: document.getElementById('btnTransferPush'),
   btnTransferPull: document.getElementById('btnTransferPull'),
   transferPanel: document.getElementById('transferPanel'),
-  btnAutoJean15: document.getElementById('btnAutoJean15'),
-  btnAutoStop: document.getElementById('btnAutoStop'),
-  automationHint: document.getElementById('automationHint'),
-  agentGoal: document.getElementById('agentGoal'),
-  btnAgentStart: document.getElementById('btnAgentStart'),
-  btnAgentStop: document.getElementById('btnAgentStop'),
-  agentStatusLine: document.getElementById('agentStatusLine'),
-  agentLog: document.getElementById('agentLog'),
 };
 
-let mode = 'record';
+let mode = 'capture';
 let connection = 'usb';
 let screenBehavior = 'keep'; // keep | default | off
 let isActive = false;
@@ -1014,7 +1006,7 @@ window.api.getStatus().then((status) => {
   if (status.recordDir) els.recordDir.value = status.recordDir;
   if (status.settings) {
     const s = status.settings;
-    mode = s.mode || 'record';
+    mode = s.mode || 'capture';
     connection = s.connection || 'usb';
     if (s.wifiAddress) els.wifiAddress.value = s.wifiAddress;
     if (s.bitrate) els.bitrate.value = s.bitrate;
@@ -1083,19 +1075,11 @@ Promise.all([
 let transferSelected = null;
 let transferBusy = false;
 let transferEntries = [];
-let transferCurrentPath = '/sdcard/DCIM/Camera';
-let transferCategory = 'images';
-let transferLibraryId = 'images';
+const DOWNLOAD_ROOT = '/sdcard/Download';
+let transferCurrentPath = DOWNLOAD_ROOT;
+let transferCategory = 'all';
 let transferViewMode = (localStorage.getItem('clevenrec.transferView') === 'grid') ? 'grid' : 'list';
 let transferPreviewToken = 0;
-
-const MEDIA_LIBRARY = {
-  images: { path: '/sdcard/DCIM/Camera', category: 'images', label: 'Imagens' },
-  videos: { path: '/sdcard/Movies', category: 'videos', label: 'Vídeos' },
-  audio: { path: '/sdcard/Music', category: 'audio', label: 'Áudio' },
-  docs: { path: '/sdcard/Documents', category: 'docs', label: 'Docs' },
-  downloads: { path: '/sdcard/Download', category: 'all', label: 'Downloads' },
-};
 
 const TRANSFER_CAT_ORDER = ['folders', 'images', 'videos', 'audio', 'docs', 'other'];
 const TRANSFER_CAT_LABELS = {
@@ -1130,23 +1114,76 @@ function setTransferHint(text) {
   if (els.transferHint) els.transferHint.textContent = text || '';
 }
 
+function normalizeRemotePath(p) {
+  const raw = String(p || '').trim() || '/';
+  if (raw === '/') return '/';
+  return raw.replace(/\/+$/, '') || '/';
+}
+
+function clampToDownload(pathValue) {
+  const path = normalizeRemotePath(pathValue || DOWNLOAD_ROOT);
+  if (path === DOWNLOAD_ROOT || path.startsWith(`${DOWNLOAD_ROOT}/`)) return path;
+  const alt = '/storage/emulated/0/Download';
+  if (path === alt || path.startsWith(`${alt}/`)) return path;
+  return DOWNLOAD_ROOT;
+}
+
+function isDownloadRoot(pathValue) {
+  const path = normalizeRemotePath(pathValue);
+  return path === DOWNLOAD_ROOT || path === '/storage/emulated/0/Download';
+}
+
+function downloadBreadcrumb(pathValue) {
+  const path = clampToDownload(pathValue);
+  const altRoot = '/storage/emulated/0/Download';
+  let relative = '';
+  if (path === DOWNLOAD_ROOT || path === altRoot) {
+    return 'Download';
+  }
+  if (path.startsWith(`${DOWNLOAD_ROOT}/`)) relative = path.slice(DOWNLOAD_ROOT.length + 1);
+  else if (path.startsWith(`${altRoot}/`)) relative = path.slice(altRoot.length + 1);
+  else return 'Download';
+  return `Download / ${relative.split('/').join(' / ')}`;
+}
+
+function syncTransferNav() {
+  const path = clampToDownload(els.transferPath?.value || DOWNLOAD_ROOT);
+  if (els.transferPath) els.transferPath.value = path;
+  if (els.transferCrumb) els.transferCrumb.textContent = downloadBreadcrumb(path);
+  if (els.btnTransferUp) els.btnTransferUp.disabled = !!transferBusy || isDownloadRoot(path);
+}
+
+function updateTransferActions(options = {}) {
+  const skipHint = !!options.skipHint;
+  if (els.btnTransferPush) {
+    els.btnTransferPush.disabled = !!transferBusy;
+    els.btnTransferPush.textContent = 'Enviar para Download';
+  }
+  if (els.btnTransferPull) {
+    const canPull = !transferBusy && !!transferSelected;
+    els.btnTransferPull.disabled = !canPull;
+    els.btnTransferPull.textContent = transferSelected?.isDir ? 'Baixar pasta' : 'Baixar';
+  }
+  if (skipHint || transferBusy) return;
+  if (!transferSelected) {
+    setTransferHint('Selecione um item · Enviar usa esta pasta');
+    return;
+  }
+  const kind = transferSelected.isDir
+    ? 'Pasta'
+    : (TRANSFER_CAT_LABELS[transferSelected.category] || 'Arquivo');
+  setTransferHint(`${kind}: ${transferSelected.name} · duplo clique abre/baixa`);
+}
+
 function setTransferBusy(busy, label) {
   transferBusy = busy;
   const controls = [
     els.btnTransferRefresh,
-    els.btnTransferPush,
-    els.btnTransferPull,
-    els.btnTransferUp,
     els.transferPath,
   ];
   controls.forEach((el) => {
     if (el) el.disabled = !!busy;
   });
-  if (els.transferLibrary) {
-    els.transferLibrary.querySelectorAll('button').forEach((btn) => {
-      btn.disabled = !!busy;
-    });
-  }
   if (els.transferCats) {
     els.transferCats.querySelectorAll('button').forEach((btn) => {
       btn.disabled = !!busy;
@@ -1160,6 +1197,8 @@ function setTransferBusy(busy, label) {
   if (els.transferPanel) {
     els.transferPanel.classList.toggle('is-busy', !!busy);
   }
+  syncTransferNav();
+  updateTransferActions({ skipHint: true });
   if (label) setTransferHint(label);
 }
 
@@ -1251,15 +1290,7 @@ function syncTransferCatButtons(counts = null) {
   });
 }
 
-function syncTransferLibraryButtons() {
-  if (!els.transferLibrary) return;
-  els.transferLibrary.querySelectorAll('[data-lib]').forEach((btn) => {
-    const id = btn.getAttribute('data-lib') || '';
-    btn.classList.toggle('is-active', id === transferLibraryId);
-  });
-}
-
-function clearTransferPreview(message = 'Selecione um arquivo', info = 'Somente visualização') {
+function clearTransferPreview(message = 'Nenhum item selecionado', info = 'Clique na lista para pré-visualizar') {
   if (els.transferPreview) els.transferPreview.classList.add('transfer-preview-empty');
   if (els.transferPreviewFrame) els.transferPreviewFrame.classList.remove('has-image');
   if (els.transferPreviewImg) {
@@ -1277,10 +1308,11 @@ async function showTransferPreview(entry, remotePath) {
   const cat = categorizeEntry(entry);
   const kind = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[cat] || 'Arquivo');
   const size = formatSize(entry.size);
+  const where = downloadBreadcrumb(remotePath);
   els.transferPreview.classList.remove('transfer-preview-empty');
   if (els.transferPreviewName) els.transferPreviewName.textContent = entry.name;
   if (els.transferPreviewInfo) {
-    els.transferPreviewInfo.textContent = [kind, size, remotePath].filter(Boolean).join(' · ');
+    els.transferPreviewInfo.textContent = [kind, size, where].filter(Boolean).join(' · ');
   }
   if (els.transferPreviewIcon) els.transferPreviewIcon.textContent = transferIconFor(entry);
   if (els.transferPreviewFrame) els.transferPreviewFrame.classList.remove('has-image');
@@ -1305,7 +1337,7 @@ async function showTransferPreview(entry, remotePath) {
       els.transferPreviewImg.alt = entry.name;
       if (els.transferPreviewFrame) els.transferPreviewFrame.classList.add('has-image');
       if (els.transferPreviewInfo) {
-        els.transferPreviewInfo.textContent = [kind, formatSize(result.size || entry.size), remotePath]
+        els.transferPreviewInfo.textContent = [kind, formatSize(result.size || entry.size), where]
           .filter(Boolean)
           .join(' · ');
       }
@@ -1330,7 +1362,9 @@ function selectTransferEntry(entry, currentPath) {
   if (!els.transferList) return;
   const remotePath = joinRemote(currentPath, entry.name);
   els.transferList.querySelectorAll('li[data-name]').forEach((n) => {
-    n.classList.toggle('is-selected', n.dataset.name === entry.name);
+    const selected = n.dataset.name === entry.name;
+    n.classList.toggle('is-selected', selected);
+    n.setAttribute('aria-selected', selected ? 'true' : 'false');
   });
   transferSelected = {
     name: entry.name,
@@ -1339,9 +1373,7 @@ function selectTransferEntry(entry, currentPath) {
     category: categorizeEntry(entry),
     size: entry.size,
   };
-  const kind = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[transferSelected.category] || 'Arquivo');
-  setTransferHint(`${kind} selecionado · toque em Baixar para trazer ao PC`);
-  if (els.btnTransferPull) els.btnTransferPull.disabled = !!transferBusy;
+  updateTransferActions();
   showTransferPreview(entry, remotePath);
 }
 
@@ -1381,7 +1413,6 @@ function appendTransferEntry(entry, currentPath) {
   // Padrão file manager: click seleciona; duplo clique abre pasta
   li.addEventListener('click', () => {
     selectTransferEntry(entry, currentPath);
-    li.setAttribute('aria-selected', 'true');
   });
   li.addEventListener('dblclick', (e) => {
     e.preventDefault();
@@ -1406,6 +1437,7 @@ function renderTransferList(entries = [], currentPath) {
   transferEntries = Array.isArray(entries) ? entries : [];
   transferCurrentPath = currentPath || transferCurrentPath;
   syncTransferViewButtons();
+  syncTransferNav();
 
   const enriched = transferEntries.map((entry) => ({
     ...entry,
@@ -1421,14 +1453,18 @@ function renderTransferList(entries = [], currentPath) {
   if (!transferEntries.length) {
     transferSelected = null;
     clearTransferPreview();
-    els.transferList.innerHTML = '<li class="transfer-empty">Pasta vazia neste caminho.</li>';
-    setTransferHint('Envie arquivos do PC ou escolha outra biblioteca acima.');
+    els.transferList.innerHTML = '<li class="transfer-empty">Pasta vazia.</li>';
+    updateTransferActions();
     return;
   }
   if (!visible.length) {
     transferSelected = null;
-    clearTransferPreview('Nada neste filtro', `Troque o filtro ou a biblioteca (${TRANSFER_CAT_LABELS[transferCategory] || transferCategory})`);
+    clearTransferPreview(
+      'Nada neste filtro',
+      `Troque o filtro (${TRANSFER_CAT_LABELS[transferCategory] || transferCategory})`,
+    );
     els.transferList.innerHTML = `<li class="transfer-empty">Nada em ${TRANSFER_CAT_LABELS[transferCategory] || transferCategory} nesta pasta.</li>`;
+    updateTransferActions({ skipHint: true });
     setTransferHint('Troque o filtro ou abra outra pasta.');
     return;
   }
@@ -1461,6 +1497,7 @@ function renderTransferList(entries = [], currentPath) {
       if (transferViewMode === 'list') {
         const header = document.createElement('li');
         header.className = 'xfer-section';
+        header.setAttribute('role', 'presentation');
         header.textContent = `${TRANSFER_CAT_LABELS[cat]} · ${group.length}`;
         els.transferList.appendChild(header);
       }
@@ -1470,23 +1507,16 @@ function renderTransferList(entries = [], currentPath) {
     visible.forEach((entry) => appendTransferEntry(entry, transferCurrentPath));
   }
 
-  const countsHint = TRANSFER_CAT_ORDER
-    .map((cat) => (counts[cat] ? `${TRANSFER_CAT_LABELS[cat]} ${counts[cat]}` : null))
-    .filter(Boolean);
-  if (!transferSelected) {
-    const viewLabel = transferViewMode === 'grid' ? 'grade' : 'lista';
-    setTransferHint(countsHint.length
-      ? `${enriched.length} item(ns) · ${viewLabel}: ${countsHint.join(' · ')}`
-      : `${enriched.length} item(ns) em ${transferCurrentPath}`);
-  }
+  updateTransferActions();
 }
 
 async function refreshTransferList(options = {}) {
   if (!els.transferPath) return;
   if (transferBusy && !options.force) return;
-  const pathValue = els.transferPath.value.trim() || '/sdcard/Download';
+  els.transferPath.value = clampToDownload(els.transferPath.value.trim() || DOWNLOAD_ROOT);
+  const pathValue = els.transferPath.value;
   const restoreBusy = transferBusy;
-  setTransferBusy(true, 'Listando pasta no celular…');
+  setTransferBusy(true, 'Listando Downloads…');
   try {
     const result = await window.api.transferList({ path: pathValue });
     if (!result?.success) {
@@ -1495,12 +1525,14 @@ async function refreshTransferList(options = {}) {
       transferSelected = null;
       clearTransferPreview('Sem dispositivo', result?.message || 'Conecte o celular via USB');
       els.transferList.innerHTML = `<li class="transfer-empty">${result?.message || 'Falha ao listar.'}</li>`;
+      syncTransferNav();
+      updateTransferActions({ skipHint: true });
       setTransferHint(result?.message || 'Conecte o celular via USB com depuração USB.');
       return;
     }
-    els.transferPath.value = result.path;
+    els.transferPath.value = clampToDownload(result.path);
     els.transferDevice.textContent = result.serial || 'conectado';
-    renderTransferList(result.entries || [], result.path);
+    renderTransferList(result.entries || [], els.transferPath.value);
   } catch (err) {
     setTransferHint(err?.message || 'Erro ao listar pasta.');
   } finally {
@@ -1523,7 +1555,7 @@ async function pushToDevice() {
     const total = picked.files.length;
     setTransferHint(`Enviando 1/${total}…`);
     const result = await window.api.transferPush({
-      remoteDir: els.transferPath.value.trim() || '/sdcard/Download',
+      remoteDir: clampToDownload(els.transferPath.value.trim() || DOWNLOAD_ROOT),
       files: picked.files,
     });
     const msg = result?.message || (result?.success ? 'Enviado.' : 'Falha no envio.');
@@ -1580,10 +1612,11 @@ if (els.btnTransferRefresh) {
 }
 if (els.btnTransferUp) {
   els.btnTransferUp.addEventListener('click', () => {
-    const cur = (els.transferPath.value || '/sdcard').replace(/\/+$/, '');
-    if (cur === '/sdcard' || cur === '/storage/emulated/0' || cur === '/') return;
+    const cur = clampToDownload(els.transferPath.value || DOWNLOAD_ROOT);
+    if (isDownloadRoot(cur)) return;
     const idx = cur.lastIndexOf('/');
-    els.transferPath.value = idx > 0 ? cur.slice(0, idx) : '/sdcard';
+    const parent = idx > 0 ? cur.slice(0, idx) : DOWNLOAD_ROOT;
+    els.transferPath.value = clampToDownload(parent);
     refreshTransferList();
   });
 }
@@ -1592,26 +1625,6 @@ if (els.btnTransferPush) {
 }
 if (els.btnTransferPull) {
   els.btnTransferPull.addEventListener('click', () => pullFromDevice());
-}
-if (els.transferLibrary) {
-  els.transferLibrary.querySelectorAll('[data-lib]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (transferBusy) return;
-      const id = btn.getAttribute('data-lib') || 'downloads';
-      const lib = MEDIA_LIBRARY[id] || MEDIA_LIBRARY.downloads;
-      transferLibraryId = id;
-      transferCategory = lib.category || 'all';
-      els.transferPath.value = lib.path;
-      syncTransferLibraryButtons();
-      syncTransferCatButtons();
-      clearTransferPreview(
-        `Biblioteca · ${lib.label}`,
-        'Selecione um arquivo para ver o preview'
-      );
-      refreshTransferList();
-    });
-  });
-  syncTransferLibraryButtons();
 }
 if (els.transferCats) {
   els.transferCats.querySelectorAll('[data-cat]').forEach((btn) => {
@@ -1632,192 +1645,11 @@ if (els.transferViews) {
   });
   syncTransferViewButtons();
 }
-if (els.transferPath) {
-  els.transferPath.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      refreshTransferList();
-    }
-  });
-}
+
+syncTransferNav();
+updateTransferActions();
 
 // Auto-refresh leve ao abrir
 setTimeout(() => {
   if (window.api.transferList) refreshTransferList();
 }, 1200);
-
-/** --- Automações --- */
-let automationBusy = false;
-
-function setAutomationBusy(busy) {
-  automationBusy = !!busy;
-  if (els.btnAutoJean15) els.btnAutoJean15.disabled = automationBusy;
-  if (els.btnAutoStop) els.btnAutoStop.disabled = !automationBusy;
-}
-
-function setAutomationHint(text) {
-  if (els.automationHint) els.automationHint.textContent = text || '';
-}
-
-if (window.api.onAutomationProgress) {
-  window.api.onAutomationProgress((payload = {}) => {
-    if (payload.message) setAutomationHint(payload.message);
-    if (payload.done) setAutomationBusy(false);
-  });
-}
-
-if (els.btnAutoJean15) {
-  els.btnAutoJean15.addEventListener('click', async () => {
-    if (automationBusy || !window.api.runAutomation) return;
-    const sceneId = els.btnAutoJean15.getAttribute('data-scene') || 'bible-jean15-s21';
-    setAutomationBusy(true);
-    setAutomationHint('Iniciando cena…');
-    try {
-      const result = await window.api.runAutomation(sceneId);
-      if (result?.message) setAutomationHint(result.message);
-      if (!result?.success && !result?.cancelled) {
-        setAutomationHint(result?.message || 'Falha na automação.');
-      }
-    } catch (err) {
-      setAutomationHint(err?.message || 'Falha na automação.');
-    } finally {
-      setAutomationBusy(false);
-    }
-  });
-}
-
-if (els.btnAutoStop) {
-  els.btnAutoStop.addEventListener('click', async () => {
-    if (!window.api.stopAutomation) return;
-    setAutomationHint('Parando…');
-    try {
-      const result = await window.api.stopAutomation();
-      if (result?.message) setAutomationHint(result.message);
-    } catch (err) {
-      setAutomationHint(err?.message || 'Não foi possível parar.');
-    }
-  });
-}
-
-/** --- Agente IA (central) --- */
-let agentBusy = false;
-let agentPollTimer = null;
-
-function setAgentBusy(busy) {
-  agentBusy = !!busy;
-  if (els.btnAgentStart) els.btnAgentStart.disabled = agentBusy;
-  if (els.btnAgentStop) els.btnAgentStop.disabled = !agentBusy;
-  if (els.agentGoal) els.agentGoal.disabled = agentBusy;
-}
-
-function setAgentStatusLine(text) {
-  if (els.agentStatusLine) els.agentStatusLine.textContent = text || '';
-}
-
-function renderAgentLog(entries) {
-  if (!els.agentLog) return;
-  const lines = (entries || []).slice(-12).map((e) => {
-    const ev = e.event || '';
-    if (ev === 'decision') {
-      const d = e.decision || {};
-      return `#${e.step || '?'} ${d.acao || '?'} — ${d.pensamento || ''}`;
-    }
-    if (ev === 'exec') {
-      const r = e.result || {};
-      return `  exec ${r.acao || ''} via ${r.backend || '?'}${r.ok === false ? ' FAIL' : ''}`;
-    }
-    if (ev === 'error') return `erro: ${e.message || ''}`;
-    if (ev === 'concluido') return 'concluído';
-    if (ev === 'ready') return `pronto · backend=${e.backend || '?'}`;
-    return ev;
-  });
-  els.agentLog.textContent = lines.join('\n') || '—';
-}
-
-async function pollAgentStatus() {
-  if (!window.api.agentStatus) return;
-  try {
-    const st = await window.api.agentStatus();
-    if (!st) return;
-    const running = !!st.running;
-    setAgentBusy(running);
-    const bits = [
-      st.status || 'idle',
-      st.backend ? `backend ${st.backend}` : null,
-      st.last_acao ? `ação ${st.last_acao}` : null,
-      st.message || null,
-    ].filter(Boolean);
-    setAgentStatusLine(bits.join(' · '));
-    renderAgentLog(st.log || []);
-    if (!running && agentPollTimer) {
-      clearInterval(agentPollTimer);
-      agentPollTimer = null;
-    }
-  } catch (_) { /* ignore */ }
-}
-
-function startAgentPolling() {
-  if (agentPollTimer) clearInterval(agentPollTimer);
-  agentPollTimer = setInterval(pollAgentStatus, 800);
-  pollAgentStatus();
-}
-
-if (els.btnAgentStart) {
-  els.btnAgentStart.addEventListener('click', async () => {
-    if (agentBusy || !window.api.agentStart) return;
-    const objetivo = (els.agentGoal?.value || '').trim();
-    if (!objetivo) {
-      setAgentStatusLine('Digite um objetivo.');
-      return;
-    }
-    setAgentBusy(true);
-    setAgentStatusLine('Subindo agente…');
-    try {
-      if (window.api.agentEnsureServer) {
-        const ready = await window.api.agentEnsureServer();
-        if (!ready?.success) {
-          setAgentStatusLine(ready?.message || 'Servidor do agente indisponível.');
-          setAgentBusy(false);
-          return;
-        }
-        if (ready.health && ready.health.brain_configured === false) {
-          setAgentStatusLine('AVISO: OPENAI_API_KEY não configurada no ambiente.');
-        }
-      }
-      const result = await window.api.agentStart({ objetivo });
-      if (!result?.success && result?.ok === false) {
-        setAgentStatusLine(result?.message || 'Falha ao iniciar.');
-        setAgentBusy(false);
-        return;
-      }
-      if (result?.ok === false) {
-        setAgentStatusLine(result?.message || 'Falha ao iniciar.');
-        setAgentBusy(false);
-        return;
-      }
-      setAgentStatusLine('Missão em andamento…');
-      startAgentPolling();
-    } catch (err) {
-      setAgentStatusLine(err?.message || 'Falha ao iniciar agente.');
-      setAgentBusy(false);
-    }
-  });
-}
-
-if (els.btnAgentStop) {
-  els.btnAgentStop.addEventListener('click', async () => {
-    if (!window.api.agentStop) return;
-    setAgentStatusLine('Parando…');
-    try {
-      await window.api.agentStop();
-    } catch (_) { /* ignore */ }
-    startAgentPolling();
-  });
-}
-
-// Sobe o servidor do agente em background (best-effort)
-setTimeout(() => {
-  if (window.api.agentEnsureServer) {
-    window.api.agentEnsureServer().catch(() => {});
-  }
-}, 2500);

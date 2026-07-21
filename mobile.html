@@ -134,10 +134,10 @@
   <div class="status" id="status"><span class="dot"></span><span id="statusText">Conectando…</span></div>
 
   <div class="modes">
-    <button type="button" id="mCapture">Capturar</button>
-    <button type="button" id="mRecord" class="active">Gravar</button>
+    <button type="button" id="mCapture" class="active">Capturar</button>
+    <button type="button" id="mRecord">Gravar</button>
   </div>
-  <div class="mode-hint" id="modeHint">Gravar salva um arquivo. Capturar só espelha.</div>
+  <div class="mode-hint" id="modeHint">Capturar só espelha. Gravar salva um arquivo.</div>
 
   <div class="modes">
     <button type="button" id="cUsb" class="active">USB</button>
@@ -225,7 +225,7 @@
   <div class="err" id="err"></div>
 
   <script>
-    let mode = 'record';
+    let mode = 'capture';
     let connection = 'usb';
     let screenBehavior = 'keep';
     let active = false;
