@@ -319,12 +319,41 @@ O executor + remote já resolvem hit-point e físico.
 | `normalize.py` | 1080×1920 |
 | `filter.py` | Ratio de mudança |
 | `som.py` | Dump → marcas |
+| `a11y.py` | A11y-first: árvore completa + click/scroll/wait (sem frame) |
 | `precision.py` | Geometria de toque |
-| `remote.py` | Navegação por aria |
+| `remote.py` | Navegação por aria (+ SoM/frame) |
 | `env_cache.py` | L1: fingerprint + `predict_next` + PosCache |
 | `executor.py` | Actuadores scrcpy/ADB |
 | `yv_status_som_test.py` | Missão canónica / regressão |
 | `loop.py` | Captura contínua Bloco 1 |
+
+---
+
+## 13b. A11y-first (sem frame)
+
+Camada paralela a SoM/Remote: usa só a árvore de acessibilidade (`uiautomator dump`).
+
+```bash
+python -u -m vision_agent.a11y --dump
+python -u -m vision_agent.a11y --click Books
+python -u -m vision_agent.a11y --wait Envoyer --timeout 8
+python -u -m vision_agent.a11y --scroll down
+```
+
+API:
+
+```python
+from vision_agent.a11y import A11yNavigator
+
+nav = A11yNavigator()
+nav.refresh()
+nav.click("Books", "Livres")
+nav.wait_for("EditText")
+nav.scroll("down")
+```
+
+Quando usar: scripts sem visão, smoke de UI, missões novas.  
+Missão Status estável continua em `RemoteNavigator` + SoM.
 
 ---
 
