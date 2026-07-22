@@ -32,6 +32,10 @@ python -m vision_agent.loop --show --max-frames 5
 set VISION_ADB_SERIAL=192.168.1.161:5555
 set PYTHONIOENCODING=utf-8
 python -u -m vision_agent.yv_status_som_test
+
+# A11y-first (plano visual + cache de treino)
+python -u -m vision_agent.yv_status_a11y_test --auto --rounds 5
+# Doc: docs/TREINO_A11Y_STATUS.md · cache: step_cache_yv_status_a11y.json
 ```
 
 Frames do teste: `vision_agent/frames/yv_som_test/`.

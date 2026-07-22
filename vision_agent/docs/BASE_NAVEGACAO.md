@@ -329,15 +329,14 @@ O executor + remote já resolvem hit-point e físico.
 
 ---
 
-## 13b. A11y-first (sem frame)
+## 13b. A11y-first (árvore + plano visual)
 
-Camada paralela a SoM/Remote: usa só a árvore de acessibilidade (`uiautomator dump`).
+Camada paralela a SoM/Remote: usa a árvore de acessibilidade (`uiautomator dump`), com **plano de chips** e rastreio de clique para precisões de swipe.
 
 ```bash
 python -u -m vision_agent.a11y --dump
 python -u -m vision_agent.a11y --click Books
-python -u -m vision_agent.a11y --wait Envoyer --timeout 8
-python -u -m vision_agent.a11y --scroll down
+python -u -m vision_agent.yv_status_a11y_test
 ```
 
 API:
@@ -347,13 +346,15 @@ from vision_agent.a11y import A11yNavigator
 
 nav = A11yNavigator()
 nav.refresh()
-nav.click("Books", "Livres")
-nav.wait_for("EditText")
-nav.scroll("down")
+nav.click_verified("Couleur de fond", expect=("Éléphant", "TERMINÉ"))
+plane = nav.locate_chip_row("color")   # faixa real (meio ou fundo)
+nav.scroll_seek("Éléphant", prefer_plane="color", cy_band=…)
 ```
 
-Quando usar: scripts sem visão, smoke de UI, missões novas.  
-Missão Status estável continua em `RemoteNavigator` + SoM.
+Contrato de skills: `navegacao-a11y` + `navegacao-tab` (tab-first) + `ambiente-atalho` (intent) + `falha-inesperada` (dismiss).  
+Missão Status SoM continua em `yv_status_som_test.py`; A11y é regressão / caminho sem SoM.
+
+Treino documentado: [`TREINO_A11Y_STATUS.md`](TREINO_A11Y_STATUS.md) · cache `step_cache_yv_status_a11y.json`.
 
 ---
 

@@ -1,0 +1,321 @@
+{
+  "mission": "yv_status_a11y",
+  "version": 1,
+  "device_profile": "720x1600",
+  "intent": {
+    "color": "Éléphant",
+    "font": "Sans Bold",
+    "skip_other_styles": true,
+    "anticipation": {
+      "color": {
+        "direction": "left",
+        "scroll_bursts": 5,
+        "step_px": 112,
+        "row_cy": [
+          1178,
+          1318
+        ],
+        "land_markers": [
+          "Éléphant"
+        ],
+        "hit_can": [
+          648,
+          1498
+        ]
+      },
+      "font": {
+        "direction": "left",
+        "scroll_bursts": 5,
+        "step_px": 112,
+        "row_cy": [
+          1178,
+          1318
+        ],
+        "land_markers": [
+          "Sans Bold"
+        ],
+        "hit_can": [
+          984,
+          1498
+        ]
+      }
+    }
+  },
+  "timing": {
+    "yv_open_s": 1.134,
+    "after_long_s": 0.243,
+    "wa_open_s": 0.81,
+    "after_paste_s": 0.324,
+    "after_kb_s": 0.243,
+    "after_panel_s": 0.178,
+    "after_pick_s": 0.162,
+    "after_send_s": 0.446,
+    "retry_s": 0.284,
+    "scroll_settle_s": 0.097
+  },
+  "vision": {
+    "color": {
+      "round": 1,
+      "ts": "2026-07-22T18:31:44",
+      "label": "Éléphant",
+      "hit_can": [
+        648,
+        1498
+      ],
+      "bounds": [
+        392,
+        1208,
+        472,
+        1288
+      ],
+      "cy": 1248,
+      "cx": 432,
+      "in_plane": true,
+      "cy_band": [
+        1178,
+        1318
+      ],
+      "at_cy": 1248,
+      "plane": null,
+      "pitch": null,
+      "direction": "left"
+    },
+    "font": {
+      "round": 1,
+      "ts": "2026-07-22T18:31:44",
+      "label": "Sans Bold",
+      "hit_can": [
+        984,
+        1498
+      ],
+      "bounds": [
+        616,
+        1208,
+        696,
+        1288
+      ],
+      "cy": 1248,
+      "cx": 656,
+      "in_plane": true,
+      "direction": "left"
+    },
+    "palette": {
+      "round": 1,
+      "ts": "2026-07-22T18:31:44",
+      "label": "Couleur de fond",
+      "hit_can": [
+        978,
+        162
+      ],
+      "bounds": [
+        604,
+        87,
+        700,
+        183
+      ],
+      "cy": 135,
+      "cx": 652,
+      "in_plane": true
+    },
+    "envoyer": {
+      "round": 1,
+      "ts": "2026-07-22T18:31:44",
+      "label": "Envoyer",
+      "hit_can": [
+        984,
+        1774
+      ],
+      "bounds": [
+        608,
+        1456,
+        704,
+        1501
+      ],
+      "cy": 1478,
+      "cx": 656,
+      "in_plane": false
+    }
+  },
+  "history": [
+    {
+      "round": 1,
+      "ok": true,
+      "elapsed_s": 135.75,
+      "hits": 10,
+      "timing": {
+        "yv_open_s": 1.4,
+        "after_long_s": 0.3,
+        "wa_open_s": 1.0,
+        "after_paste_s": 0.4,
+        "after_kb_s": 0.3,
+        "after_panel_s": 0.22,
+        "after_pick_s": 0.2,
+        "after_send_s": 0.55,
+        "retry_s": 0.35,
+        "scroll_settle_s": 0.12
+      },
+      "ts": "2026-07-22T18:14:55"
+    },
+    {
+      "round": 2,
+      "ok": true,
+      "elapsed_s": 147.43,
+      "hits": 10,
+      "timing": {
+        "yv_open_s": 1.26,
+        "after_long_s": 0.27,
+        "wa_open_s": 0.9,
+        "after_paste_s": 0.36,
+        "after_kb_s": 0.27,
+        "after_panel_s": 0.198,
+        "after_pick_s": 0.18,
+        "after_send_s": 0.495,
+        "retry_s": 0.315,
+        "scroll_settle_s": 0.108
+      },
+      "ts": "2026-07-22T18:17:24"
+    },
+    {
+      "round": 3,
+      "ok": true,
+      "elapsed_s": 123.69,
+      "hits": 10,
+      "timing": {
+        "yv_open_s": 1.134,
+        "after_long_s": 0.243,
+        "wa_open_s": 0.81,
+        "after_paste_s": 0.324,
+        "after_kb_s": 0.243,
+        "after_panel_s": 0.178,
+        "after_pick_s": 0.162,
+        "after_send_s": 0.446,
+        "retry_s": 0.284,
+        "scroll_settle_s": 0.097
+      },
+      "ts": "2026-07-22T18:19:30"
+    },
+    {
+      "round": 4,
+      "ok": true,
+      "elapsed_s": 137.0,
+      "hits": 10,
+      "timing": {
+        "yv_open_s": 1.021,
+        "after_long_s": 0.219,
+        "wa_open_s": 0.729,
+        "after_paste_s": 0.292,
+        "after_kb_s": 0.219,
+        "after_panel_s": 0.16,
+        "after_pick_s": 0.146,
+        "after_send_s": 0.401,
+        "retry_s": 0.256,
+        "scroll_settle_s": 0.087
+      },
+      "ts": "2026-07-22T18:21:49"
+    },
+    {
+      "round": 5,
+      "ok": false,
+      "elapsed_s": 159.46,
+      "hits": 9,
+      "timing": {
+        "yv_open_s": 0.919,
+        "after_long_s": 0.197,
+        "wa_open_s": 0.656,
+        "after_paste_s": 0.263,
+        "after_kb_s": 0.197,
+        "after_panel_s": 0.144,
+        "after_pick_s": 0.131,
+        "after_send_s": 0.361,
+        "retry_s": 0.23,
+        "scroll_settle_s": 0.078
+      },
+      "ts": "2026-07-22T18:24:31"
+    },
+    {
+      "round": 1,
+      "ok": true,
+      "elapsed_s": 102.91,
+      "hits": 10,
+      "timing": {
+        "yv_open_s": 1.134,
+        "after_long_s": 0.243,
+        "wa_open_s": 0.81,
+        "after_paste_s": 0.324,
+        "after_kb_s": 0.243,
+        "after_panel_s": 0.178,
+        "after_pick_s": 0.162,
+        "after_send_s": 0.446,
+        "retry_s": 0.284,
+        "scroll_settle_s": 0.097
+      },
+      "ts": "2026-07-22T18:31:44"
+    }
+  ],
+  "auto_improve": {
+    "done": false,
+    "best_elapsed_s": 123.69,
+    "target_s": 85.0,
+    "rounds": 5,
+    "timing": {
+      "yv_open_s": 1.134,
+      "after_long_s": 0.243,
+      "wa_open_s": 0.81,
+      "after_paste_s": 0.324,
+      "after_kb_s": 0.243,
+      "after_panel_s": 0.178,
+      "after_pick_s": 0.162,
+      "after_send_s": 0.446,
+      "retry_s": 0.284,
+      "scroll_settle_s": 0.097
+    }
+  },
+  "notes": "a11y round1 OK 102.9s hits=10",
+  "visual_report": {
+    "rounds": [
+      {
+        "r": 1,
+        "s": 135.7,
+        "color_scrolls": 5,
+        "start": "ciel/maya",
+        "ok": true
+      },
+      {
+        "r": 2,
+        "s": 147.4,
+        "color_scrolls": 5,
+        "start": "ciel/maya",
+        "ok": true
+      },
+      {
+        "r": 3,
+        "s": 123.7,
+        "color_scrolls": 1,
+        "start": "violine",
+        "ok": true,
+        "best": true
+      },
+      {
+        "r": 4,
+        "s": 137.0,
+        "color_scrolls": 3,
+        "start": "monte carlo",
+        "ok": true
+      },
+      {
+        "r": 5,
+        "s": 159.5,
+        "color_scrolls": 5,
+        "start": "ciel/maya",
+        "ok": false,
+        "why": "max_scrolls=4 cut"
+      }
+    ],
+    "findings": [
+      "Éléphant está no fim da paleta (após étoile/gris)",
+      "amount=0.28 → ~5 seeks; burst antecipa",
+      "Sans Bold = 1× left estável",
+      "não baixar max_scrolls_color abaixo de 8"
+    ]
+  }
+}

@@ -95,6 +95,7 @@ else:
 
 - `ambiente-atalho` — o quê atingir (intent) e quando atalhar
 - `falha-inesperada` — overlay sem tabs úteis → regresso
+- `navegacao-a11y` — mesma ordem tab>swipe via dump; régua = `VisualPlane` + pitch
 - Esta skill — **como** mover: tab > swipe; swipe medido pela régua
 
 ## Anti-padrões
