@@ -1662,6 +1662,42 @@ function isAllowedDevicePath(devicePath) {
   );
 }
 
+/** Volumes removíveis sob /storage (exclui emulated/self). */
+async function listRemovableStorageRoots(adbPath, serial) {
+  const result = await runAdb(
+    adbPath,
+    ['-s', serial, 'shell', 'ls', '-1', '/storage'],
+    { timeout: 12000 },
+  );
+  const names = (result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((name) => {
+      const lower = name.toLowerCase();
+      return lower !== 'emulated' && lower !== 'self' && !lower.startsWith('.');
+    });
+
+  const roots = [];
+  for (const name of names) {
+    const pathValue = normalizeDevicePath(`/storage/${name}`);
+    // Confirma que a pasta lista (volume montado)
+    const probe = await runAdb(
+      adbPath,
+      ['-s', serial, 'shell', 'ls', '-la', '--', pathValue],
+      { timeout: 8000 },
+    );
+    if (!probe.ok && !(probe.stdout || '').trim()) continue;
+    roots.push({
+      id: `sd:${name}`,
+      label: roots.length === 0 ? 'Cartão SD' : `Cartão SD (${name})`,
+      path: pathValue,
+      volume: name,
+    });
+  }
+  return roots;
+}
+
 function parentDevicePath(devicePath) {
   const p = normalizeDevicePath(devicePath);
   if (p === '/' || p === '/sdcard' || p === '/storage/emulated/0') return p;
@@ -1729,6 +1765,27 @@ ipcMain.handle('transfer-devices', async () => safeIpc(async () => {
   };
 }, 'Falha ao listar dispositivos'));
 
+ipcMain.handle('transfer-roots', async () => safeIpc(async () => {
+  const info = await getPrimaryDeviceSerial();
+  if (!info.success) return info;
+  ensureRuntimePaths();
+  const adbPath = getAdbPath();
+  const removable = await listRemovableStorageRoots(adbPath, info.serial);
+  return {
+    success: true,
+    serial: info.serial,
+    roots: [
+      {
+        id: 'download',
+        label: 'Download',
+        path: '/sdcard/Download',
+        aliases: ['/storage/emulated/0/Download'],
+      },
+      ...removable,
+    ],
+  };
+}, 'Falha ao listar raízes de armazenamento'));
+
 ipcMain.handle('transfer-list', async (_event, payload = {}) => safeIpc(async () => {
   const dir = normalizeDevicePath(payload.path || '/sdcard/Download');
   if (!isAllowedDevicePath(dir)) {
@@ -1771,10 +1828,27 @@ ipcMain.handle('transfer-list', async (_event, payload = {}) => safeIpc(async ()
 ipcMain.handle('transfer-choose-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile', 'multiSelections'],
-    title: 'Enviar para o celular',
+    title: 'Escolher arquivos para enviar',
   });
   if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
-  return { success: true, files: result.filePaths };
+  return {
+    success: true,
+    files: result.filePaths,
+    kind: 'files',
+  };
+});
+
+ipcMain.handle('transfer-choose-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Escolher pasta para enviar',
+  });
+  if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+  return {
+    success: true,
+    files: result.filePaths,
+    kind: 'folder',
+  };
 });
 
 ipcMain.handle('transfer-choose-save-dir', async () => {
@@ -1791,13 +1865,23 @@ ipcMain.handle('transfer-push', async (_event, payload = {}) => safeIpc(async ()
   if (!isAllowedDevicePath(remoteDir)) {
     return { success: false, message: 'Destino não permitido. Use /sdcard ou /storage.' };
   }
-  const files = Array.isArray(payload.files) ? payload.files.filter(Boolean) : [];
-  if (!files.length) return { success: false, message: 'Nenhum arquivo selecionado.' };
+  const paths = Array.isArray(payload.files) ? payload.files.filter(Boolean) : [];
+  if (!paths.length) return { success: false, message: 'Nenhum arquivo ou pasta selecionado.' };
 
-  for (const file of files) {
-    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      return { success: false, message: `Arquivo inválido: ${file}` };
+  const items = [];
+  for (const localPath of paths) {
+    if (!fs.existsSync(localPath)) {
+      return { success: false, message: `Caminho inválido: ${localPath}` };
     }
+    const st = fs.statSync(localPath);
+    if (!st.isFile() && !st.isDirectory()) {
+      return { success: false, message: `Tipo não suportado: ${localPath}` };
+    }
+    items.push({
+      path: localPath,
+      name: path.basename(localPath),
+      isDir: st.isDirectory(),
+    });
   }
 
   const info = await getPrimaryDeviceSerial();
@@ -1806,33 +1890,47 @@ ipcMain.handle('transfer-push', async (_event, payload = {}) => safeIpc(async ()
   const adbPath = getAdbPath();
 
   const sent = [];
-  for (const file of files) {
+  for (const item of items) {
+    // adb push copia pastas recursivamente para remoteDir/nome
     const result = await runAdb(
       adbPath,
-      ['-s', info.serial, 'push', file, remoteDir + '/'],
-      { timeout: 10 * 60 * 1000 }
+      ['-s', info.serial, 'push', item.path, remoteDir + '/'],
+      { timeout: 30 * 60 * 1000 }
     );
     if (!result.ok) {
       return {
         success: false,
-        message: (result.stderr || result.stdout || `Falha ao enviar ${path.basename(file)}`).trim().slice(0, 300),
+        message: (result.stderr || result.stdout || `Falha ao enviar ${item.name}`).trim().slice(0, 300),
         sent,
         serial: info.serial,
       };
     }
-    sent.push(path.basename(file));
+    sent.push(item.isDir ? `${item.name}/` : item.name);
+  }
+
+  const folders = items.filter((i) => i.isDir).length;
+  const files = items.length - folders;
+  let message;
+  if (items.length === 1) {
+    message = items[0].isDir
+      ? `Pasta enviada: ${items[0].name} → ${remoteDir}`
+      : `Enviado: ${items[0].name} → ${remoteDir}`;
+  } else if (folders && files) {
+    message = `${files} arquivo(s) + ${folders} pasta(s) → ${remoteDir}`;
+  } else if (folders) {
+    message = `${folders} pasta(s) enviada(s) → ${remoteDir}`;
+  } else {
+    message = `${files} arquivos enviados → ${remoteDir}`;
   }
 
   return {
     success: true,
-    message: sent.length === 1
-      ? `Enviado: ${sent[0]} → ${remoteDir}`
-      : `${sent.length} arquivos enviados → ${remoteDir}`,
+    message,
     sent,
     path: remoteDir,
     serial: info.serial,
   };
-}, 'Falha ao enviar arquivo'));
+}, 'Falha ao enviar arquivo/pasta'));
 
 ipcMain.handle('transfer-pull', async (_event, payload = {}) => safeIpc(async () => {
   const remotePath = normalizeDevicePath(payload.remotePath || '');

@@ -59,6 +59,7 @@ const els = {
   transferHint: document.getElementById('transferHint'),
   transferCats: document.getElementById('transferCats'),
   transferViews: document.getElementById('transferViews'),
+  transferRoots: document.getElementById('transferRoots'),
   transferPreview: document.getElementById('transferPreview'),
   transferPreviewFrame: document.getElementById('transferPreviewFrame'),
   transferPreviewIcon: document.getElementById('transferPreviewIcon'),
@@ -72,7 +73,8 @@ const els = {
   transferPreviewText: document.getElementById('transferPreviewText'),
   btnTransferUp: document.getElementById('btnTransferUp'),
   btnTransferRefresh: document.getElementById('btnTransferRefresh'),
-  btnTransferPush: document.getElementById('btnTransferPush'),
+  btnTransferPushFiles: document.getElementById('btnTransferPushFiles'),
+  btnTransferPushFolder: document.getElementById('btnTransferPushFolder'),
   btnTransferPull: document.getElementById('btnTransferPull'),
   transferPanel: document.getElementById('transferPanel'),
 };
@@ -1097,6 +1099,11 @@ let transferSelected = null;
 let transferBusy = false;
 let transferEntries = [];
 const DOWNLOAD_ROOT = '/sdcard/Download';
+const DOWNLOAD_ALIASES = ['/sdcard/Download', '/storage/emulated/0/Download'];
+let transferRoots = [
+  { id: 'download', label: 'Download', path: DOWNLOAD_ROOT, aliases: DOWNLOAD_ALIASES },
+];
+let transferRootId = 'download';
 let transferCurrentPath = DOWNLOAD_ROOT;
 let transferCategory = 'all';
 let transferViewMode = (localStorage.getItem('clevenrec.transferView') === 'grid') ? 'grid' : 'list';
@@ -1149,59 +1156,171 @@ function normalizeRemotePath(p) {
   return raw.replace(/\/+$/, '') || '/';
 }
 
-function clampToDownload(pathValue) {
-  const path = normalizeRemotePath(pathValue || DOWNLOAD_ROOT);
-  if (path === DOWNLOAD_ROOT || path.startsWith(`${DOWNLOAD_ROOT}/`)) return path;
-  const alt = '/storage/emulated/0/Download';
-  if (path === alt || path.startsWith(`${alt}/`)) return path;
-  return DOWNLOAD_ROOT;
+function getActiveTransferRoot() {
+  return transferRoots.find((r) => r.id === transferRootId) || transferRoots[0];
 }
 
-function isDownloadRoot(pathValue) {
+function rootBasePaths(root) {
+  if (!root) return [DOWNLOAD_ROOT];
+  const bases = [root.path, ...(root.aliases || [])].filter(Boolean);
+  return [...new Set(bases.map(normalizeRemotePath))];
+}
+
+function findRootForPath(pathValue) {
   const path = normalizeRemotePath(pathValue);
-  return path === DOWNLOAD_ROOT || path === '/storage/emulated/0/Download';
+  for (const root of transferRoots) {
+    for (const base of rootBasePaths(root)) {
+      if (path === base || path.startsWith(`${base}/`)) return root;
+    }
+  }
+  // volume SD genérico ainda não registado
+  if (/^\/storage\/(?!emulated\b|self\b)[^/]+/i.test(path)) {
+    const m = path.match(/^(\/storage\/[^/]+)/i);
+    if (m) {
+      return {
+        id: `sd:${m[1].slice('/storage/'.length)}`,
+        label: 'Cartão SD',
+        path: m[1],
+        aliases: [],
+      };
+    }
+  }
+  return null;
 }
 
-function downloadBreadcrumb(pathValue) {
-  const path = clampToDownload(pathValue);
-  const altRoot = '/storage/emulated/0/Download';
-  let relative = '';
-  if (path === DOWNLOAD_ROOT || path === altRoot) {
-    return 'Download';
+function clampToFilesRoot(pathValue) {
+  const path = normalizeRemotePath(pathValue || DOWNLOAD_ROOT);
+  const matched = findRootForPath(path);
+  if (matched) {
+    // sincroniza root activo se o caminho pertence a outro volume
+    if (matched.id && transferRoots.some((r) => r.id === matched.id)) {
+      transferRootId = matched.id;
+    }
+    return path;
   }
-  if (path.startsWith(`${DOWNLOAD_ROOT}/`)) relative = path.slice(DOWNLOAD_ROOT.length + 1);
-  else if (path.startsWith(`${altRoot}/`)) relative = path.slice(altRoot.length + 1);
-  else return 'Download';
-  return `Download / ${relative.split('/').join(' / ')}`;
+  const active = getActiveTransferRoot();
+  return normalizeRemotePath(active?.path || DOWNLOAD_ROOT);
+}
+
+function isFilesRoot(pathValue) {
+  const path = normalizeRemotePath(pathValue);
+  const root = findRootForPath(path) || getActiveTransferRoot();
+  return rootBasePaths(root).includes(path);
+}
+
+function filesBreadcrumb(pathValue) {
+  const path = clampToFilesRoot(pathValue);
+  const root = findRootForPath(path) || getActiveTransferRoot();
+  const label = root?.label || 'Arquivos';
+  for (const base of rootBasePaths(root)) {
+    if (path === base) return label;
+    if (path.startsWith(`${base}/`)) {
+      return `${label} / ${path.slice(base.length + 1).split('/').join(' / ')}`;
+    }
+  }
+  return label;
+}
+
+function syncTransferRootButtons() {
+  if (!els.transferRoots) return;
+  const hasSd = transferRoots.some((r) => String(r.id).startsWith('sd'));
+  els.transferRoots.querySelectorAll('[data-root]').forEach((btn) => {
+    const key = btn.getAttribute('data-root');
+    let active = false;
+    let disabled = !!transferBusy;
+    let title = '';
+    if (key === 'download') {
+      active = transferRootId === 'download';
+    } else if (key === 'sd') {
+      if (!hasSd) disabled = true;
+      active = String(transferRootId).startsWith('sd');
+      title = hasSd ? 'Cartão SD removível' : 'Sem cartão SD detectado';
+    }
+    btn.disabled = disabled;
+    btn.classList.toggle('is-active', active && !disabled);
+    btn.setAttribute('aria-pressed', active && !disabled ? 'true' : 'false');
+    if (title) btn.title = title;
+  });
 }
 
 function syncTransferNav() {
-  const path = clampToDownload(els.transferPath?.value || DOWNLOAD_ROOT);
+  const path = clampToFilesRoot(els.transferPath?.value || DOWNLOAD_ROOT);
   if (els.transferPath) els.transferPath.value = path;
-  if (els.transferCrumb) els.transferCrumb.textContent = downloadBreadcrumb(path);
-  if (els.btnTransferUp) els.btnTransferUp.disabled = !!transferBusy || isDownloadRoot(path);
+  if (els.transferCrumb) els.transferCrumb.textContent = filesBreadcrumb(path);
+  if (els.btnTransferUp) els.btnTransferUp.disabled = !!transferBusy || isFilesRoot(path);
+  syncTransferRootButtons();
 }
 
 function updateTransferActions(options = {}) {
   const skipHint = !!options.skipHint;
-  if (els.btnTransferPush) {
-    els.btnTransferPush.disabled = !!transferBusy;
-    els.btnTransferPush.textContent = 'Enviar para Download';
+  if (els.btnTransferPushFiles) {
+    els.btnTransferPushFiles.disabled = !!transferBusy;
+    els.btnTransferPushFiles.textContent = 'Enviar arquivos';
+    els.btnTransferPushFiles.title = 'Envia para a pasta aberta';
+  }
+  if (els.btnTransferPushFolder) {
+    els.btnTransferPushFolder.disabled = !!transferBusy;
+    els.btnTransferPushFolder.textContent = 'Enviar pasta';
+    els.btnTransferPushFolder.title = 'Envia pasta (com subpastas) para a pasta aberta';
   }
   if (els.btnTransferPull) {
     const canPull = !transferBusy && !!transferSelected;
     els.btnTransferPull.disabled = !canPull;
     els.btnTransferPull.textContent = transferSelected?.isDir ? 'Baixar pasta' : 'Baixar';
+    els.btnTransferPull.title = canPull
+      ? (transferSelected?.isDir ? 'Baixar pasta seleccionada para o PC' : 'Baixar ficheiro seleccionado para o PC')
+      : 'Selecione um item na lista';
   }
   if (skipHint || transferBusy) return;
   if (!transferSelected) {
-    setTransferHint('Selecione um item · Enviar usa esta pasta');
+    setTransferHint('Pasta actual = destino do envio');
     return;
   }
   const kind = transferSelected.isDir
     ? 'Pasta'
     : (TRANSFER_CAT_LABELS[transferSelected.category] || 'Arquivo');
   setTransferHint(`${kind}: ${transferSelected.name} · duplo clique abre/baixa`);
+}
+
+async function refreshTransferRoots() {
+  if (!window.api.transferRoots) return;
+  try {
+    const result = await window.api.transferRoots();
+    if (!result?.success || !Array.isArray(result.roots)) return;
+    const download = result.roots.find((r) => r.id === 'download') || {
+      id: 'download',
+      label: 'Download',
+      path: DOWNLOAD_ROOT,
+      aliases: DOWNLOAD_ALIASES,
+    };
+    const sd = result.roots.filter((r) => String(r.id).startsWith('sd'));
+    transferRoots = [download, ...sd];
+    if (!transferRoots.some((r) => r.id === transferRootId)) {
+      transferRootId = 'download';
+    }
+    syncTransferRootButtons();
+  } catch {
+    // mantém roots em cache
+  }
+}
+
+async function switchTransferRoot(rootKey) {
+  if (transferBusy) return;
+  let next = null;
+  if (rootKey === 'download') {
+    next = transferRoots.find((r) => r.id === 'download');
+  } else if (rootKey === 'sd') {
+    next = transferRoots.find((r) => String(r.id).startsWith('sd'));
+  }
+  if (!next) {
+    setTransferHint('Cartão SD não detectado neste celular.');
+    syncTransferRootButtons();
+    return;
+  }
+  transferRootId = next.id;
+  els.transferPath.value = normalizeRemotePath(next.path);
+  syncTransferNav();
+  await refreshTransferList({ force: true });
 }
 
 function setTransferBusy(busy, label) {
@@ -1374,7 +1493,7 @@ async function showTransferPreview(entry, remotePath) {
   const cat = categorizeEntry(entry);
   const kindLabel = entry.isDir ? 'Pasta' : (TRANSFER_CAT_LABELS[cat] || 'Arquivo');
   const size = formatSize(entry.size);
-  const where = downloadBreadcrumb(remotePath);
+  const where = filesBreadcrumb(remotePath);
 
   stopPreviewMedia();
   els.transferPreview.classList.remove('transfer-preview-empty');
@@ -1622,10 +1741,12 @@ function renderTransferList(entries = [], currentPath) {
 async function refreshTransferList(options = {}) {
   if (!els.transferPath) return;
   if (transferBusy && !options.force) return;
-  els.transferPath.value = clampToDownload(els.transferPath.value.trim() || DOWNLOAD_ROOT);
+  await refreshTransferRoots();
+  els.transferPath.value = clampToFilesRoot(els.transferPath.value.trim() || DOWNLOAD_ROOT);
   const pathValue = els.transferPath.value;
   const restoreBusy = transferBusy;
-  setTransferBusy(true, 'Listando Downloads…');
+  const root = getActiveTransferRoot();
+  setTransferBusy(true, `Listando ${root?.label || 'Arquivos'}…`);
   try {
     const result = await window.api.transferList({ path: pathValue });
     if (!result?.success) {
@@ -1639,7 +1760,7 @@ async function refreshTransferList(options = {}) {
       setTransferHint(result?.message || 'Conecte o celular via USB com depuração USB.');
       return;
     }
-    els.transferPath.value = clampToDownload(result.path);
+    els.transferPath.value = clampToFilesRoot(result.path);
     els.transferDevice.textContent = result.serial || 'conectado';
     renderTransferList(result.entries || [], els.transferPath.value);
   } catch (err) {
@@ -1652,24 +1773,31 @@ async function refreshTransferList(options = {}) {
   }
 }
 
-async function pushToDevice() {
+async function pushToDevice(kind = 'files') {
   if (transferBusy) return;
-  setTransferBusy(true, 'Escolhendo arquivos no PC…');
+  const isFolder = kind === 'folder';
+  setTransferBusy(true, isFolder ? 'A escolher pasta no PC…' : 'A escolher arquivos no PC…');
   try {
-    const picked = await window.api.transferChooseFiles();
+    const picker = isFolder
+      ? window.api.transferChooseFolder
+      : window.api.transferChooseFiles;
+    if (!picker) {
+      setTransferHint('API de envio indisponível. Reinicie a app.');
+      return;
+    }
+    const picked = await picker();
     if (!picked?.success) {
       setTransferHint('Envio cancelado.');
       return;
     }
     const total = picked.files.length;
-    setTransferHint(`Enviando 1/${total}…`);
+    setTransferHint(isFolder ? 'A enviar pasta…' : `A enviar arquivo(s) (${total})…`);
     const result = await window.api.transferPush({
-      remoteDir: clampToDownload(els.transferPath.value.trim() || DOWNLOAD_ROOT),
+      remoteDir: clampToFilesRoot(els.transferPath.value.trim() || DOWNLOAD_ROOT),
       files: picked.files,
     });
     const msg = result?.message || (result?.success ? 'Enviado.' : 'Falha no envio.');
     if (result?.success) {
-      // Libera busy antes do refresh (evita early-return)
       setTransferBusy(false);
       await refreshTransferList({ force: true });
       setTransferHint(msg);
@@ -1686,17 +1814,17 @@ async function pushToDevice() {
 async function pullFromDevice() {
   if (transferBusy) return;
   if (!transferSelected) {
-    setTransferHint('Selecione um arquivo ou pasta (clique na lista).');
+    setTransferHint('Selecione um item na lista para baixar.');
     return;
   }
-  setTransferBusy(true, 'Escolhendo pasta no PC…');
+  setTransferBusy(true, 'A escolher pasta no PC…');
   try {
     const dest = await window.api.transferChooseSaveDir();
     if (!dest?.success) {
       setTransferHint('Download cancelado.');
       return;
     }
-    setTransferHint(`Baixando ${transferSelected.name}…`);
+    setTransferHint(transferSelected.isDir ? 'A baixar pasta…' : 'A baixar…');
     const result = await window.api.transferPull({
       remotePath: transferSelected.path,
       localDir: dest.dir,
@@ -1721,16 +1849,30 @@ if (els.btnTransferRefresh) {
 }
 if (els.btnTransferUp) {
   els.btnTransferUp.addEventListener('click', () => {
-    const cur = clampToDownload(els.transferPath.value || DOWNLOAD_ROOT);
-    if (isDownloadRoot(cur)) return;
+    const cur = clampToFilesRoot(els.transferPath.value || DOWNLOAD_ROOT);
+    if (isFilesRoot(cur)) return;
+    const root = findRootForPath(cur) || getActiveTransferRoot();
     const idx = cur.lastIndexOf('/');
-    const parent = idx > 0 ? cur.slice(0, idx) : DOWNLOAD_ROOT;
-    els.transferPath.value = clampToDownload(parent);
+    let parent = idx > 0 ? cur.slice(0, idx) : (root?.path || DOWNLOAD_ROOT);
+    const bases = rootBasePaths(root);
+    const stillInside = bases.some((base) => parent === base || parent.startsWith(`${base}/`));
+    if (!stillInside) parent = root?.path || DOWNLOAD_ROOT;
+    els.transferPath.value = clampToFilesRoot(parent);
     refreshTransferList();
   });
 }
-if (els.btnTransferPush) {
-  els.btnTransferPush.addEventListener('click', () => pushToDevice());
+if (els.transferRoots) {
+  els.transferRoots.querySelectorAll('[data-root]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      switchTransferRoot(btn.getAttribute('data-root') || 'download');
+    });
+  });
+}
+if (els.btnTransferPushFiles) {
+  els.btnTransferPushFiles.addEventListener('click', () => pushToDevice('files'));
+}
+if (els.btnTransferPushFolder) {
+  els.btnTransferPushFolder.addEventListener('click', () => pushToDevice('folder'));
 }
 if (els.btnTransferPull) {
   els.btnTransferPull.addEventListener('click', () => pullFromDevice());
