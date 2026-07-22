@@ -1,37 +1,27 @@
-"""Configuração do vision_agent (Bloco 1)."""
+"""Configuração do vision_agent — captura ADB/scrcpy + SoM (sem IA)."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-# Raiz do pacote e pasta de frames aprovados
 PACKAGE_DIR = Path(__file__).resolve().parent
 FRAMES_DIR = PACKAGE_DIR / "frames"
 
-# Resolução canônica (coordenadas futuras padronizadas)
+# Resolução canônica para coordenadas / SoM
 CANONICAL_WIDTH = 1080
 CANONICAL_HEIGHT = 1920
 
-# Filtro: fração mínima de pixels “diferentes” para aprovar o frame
+# Filtro de estabilidade (loop de captura)
 CHANGE_THRESHOLD = 0.02
-# Intensidade mínima (0–255) para considerar um pixel diferente
 DIFF_PIXEL_THRESHOLD = 25
-
-# JPEG de saída
 JPEG_QUALITY = 70
-
-# Intervalo entre capturas (segundos) — evita saturar ADB no MVP
 CAPTURE_INTERVAL_S = 0.25
 
-# ADB: serial opcional (None = primeiro device online)
 ADB_SERIAL = os.environ.get("VISION_ADB_SERIAL") or None
 
-# Candidatos comuns no Windows (scrcpy winget + PATH)
 _DEFAULT_ADB_CANDIDATES = [
     os.environ.get("ADB_PATH") or "",
-    r"C:\Users\Clevy\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v4.0\adb.exe",
-    r"C:\Users\Clevy\AppData\Local\Microsoft\WinGet\Links\adb.exe",
     "adb",
     "adb.exe",
 ]
@@ -39,27 +29,24 @@ _DEFAULT_ADB_CANDIDATES = [
 _DEFAULT_SCRCPY_DIR_CANDIDATES = [
     os.environ.get("SCRCPY_DIR") or "",
     os.environ.get("SCRCPY_PATH") or "",
-    r"C:\Users\Clevy\AppData\Local\Microsoft\WinGet\Packages\Genymobile.scrcpy_Microsoft.Winget.Source_8wekyb3d8bbwe\scrcpy-win64-v4.0",
-    r"C:\Users\Clevy\AppData\Local\Microsoft\WinGet\Links",
 ]
 
 
 def resolve_adb_path() -> str:
-    """Retorna o primeiro adb.exe existente ou 'adb' no PATH."""
+    """Retorna adb.exe existente ou 'adb' no PATH."""
     for candidate in _DEFAULT_ADB_CANDIDATES:
         if not candidate:
             continue
         p = Path(candidate)
         if p.is_file():
             return str(p)
-        # nome simples — deixa o PATH resolver na execução
         if candidate in ("adb", "adb.exe") and os.sep not in candidate and "/" not in candidate:
             return candidate
     return "adb"
 
 
 def resolve_scrcpy_dir() -> Path | None:
-    """Pasta que contém scrcpy.exe e scrcpy-server."""
+    """Pasta com scrcpy.exe / scrcpy-server (env ou WinGet)."""
     for candidate in _DEFAULT_SCRCPY_DIR_CANDIDATES:
         if not candidate:
             continue
@@ -72,7 +59,6 @@ def resolve_scrcpy_dir() -> Path | None:
             return p
         if (p / "scrcpy.exe").is_file():
             return p
-    # busca rápida em WinGet Packages
     winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
     if winget.is_dir():
         for exe in winget.rglob("scrcpy.exe"):
@@ -80,17 +66,43 @@ def resolve_scrcpy_dir() -> Path | None:
     return None
 
 
-# Servidor do agente
-AGENT_HOST = os.environ.get("VISION_AGENT_HOST", "127.0.0.1")
-AGENT_PORT = int(os.environ.get("VISION_AGENT_PORT", "8790"))
+# Gestos (scrcpy / ADB)
+TAP_DOWN_UP_S = float(os.environ.get("VISION_TAP_DOWN_UP", "0.02"))
+SCRCPY_SWIPE_MS = int(os.environ.get("VISION_SCRCPY_SWIPE_MS", "280"))
+SCRCPY_SWIPE_STEPS = int(os.environ.get("VISION_SCRCPY_SWIPE_STEPS", "12"))
+ADB_SWIPE_MS = int(os.environ.get("VISION_ADB_SWIPE_MS", "300"))
+LONG_PRESS_MS = int(os.environ.get("VISION_LONG_PRESS_MS", "600"))
 
-# IA (OpenAI-compatible)
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-OPENAI_VISION_MODEL = os.environ.get("OPENAI_VISION_MODEL", "gpt-4o-mini")
+# Stream scrcpy
+SCRCPY_MAX_SIZE = int(os.environ.get("VISION_SCRCPY_MAX_SIZE", "0"))
+SCRCPY_VIDEO_BIT_RATE = int(os.environ.get("VISION_SCRCPY_BITRATE", "8000000"))
+SCRCPY_MAX_FPS = int(os.environ.get("VISION_SCRCPY_MAX_FPS", "60"))
+CAPTURE_BACKEND = (os.environ.get("VISION_CAPTURE_BACKEND") or "auto").lower()
 
-# Loop do agente — settle pós-ação (aguardar UI), não “acelerador de tap”.
-# VISION_AGENT_STEP_DELAY: multiplicador (default 1.0). Valor legado "0.45" → escala 1.0.
+# Set-of-Mark
+SOM_MAX_MARKS = int(os.environ.get("VISION_SOM_MAX_MARKS", "36"))
+SOM_MIN_SIDE = int(os.environ.get("VISION_SOM_MIN_SIDE", "24"))
+
+# Precisão de navegabilidade (estilo feedback de carro autônomo)
+# Inset relativo ao bounds — evita bordas mortas do Android
+HIT_INSET_FRAC = float(os.environ.get("VISION_HIT_INSET_FRAC", "0.12"))
+HIT_INSET_MIN_PX = int(os.environ.get("VISION_HIT_INSET_MIN", "4"))
+HIT_INSET_MAX_PX = int(os.environ.get("VISION_HIT_INSET_MAX", "22"))
+# Snap de coords livres → marca SoM (px canônicos)
+SNAP_MAX_DIST_PX = float(os.environ.get("VISION_SNAP_MAX_DIST", "80"))
+# Verificação pós-toque + retry com micro-offsets
+PRECISION_VERIFY = (os.environ.get("VISION_PRECISION_VERIFY") or "1") not in (
+    "0",
+    "false",
+    "no",
+)
+PRECISION_VERIFY_THRESHOLD = float(
+    os.environ.get("VISION_PRECISION_VERIFY_THRESHOLD", "0.004")
+)
+PRECISION_MAX_RETRIES = int(os.environ.get("VISION_PRECISION_MAX_RETRIES", "4"))
+PRECISION_OFFSET_STEP_PX = int(os.environ.get("VISION_PRECISION_OFFSET_STEP", "14"))
+
+# Settle pós-ação (aguardar UI estabilizar)
 _raw_step_delay = os.environ.get("VISION_AGENT_STEP_DELAY")
 if _raw_step_delay is None:
     SETTLE_SCALE = 1.0
@@ -102,24 +114,7 @@ SETTLE_CLICK_S = 0.22 * SETTLE_SCALE
 SETTLE_SWIPE_S = 0.40 * SETTLE_SCALE
 SETTLE_TEXT_S = 0.35 * SETTLE_SCALE
 SETTLE_IDLE_S = 0.20 * SETTLE_SCALE
-# Alias legado para imports antigos
 AGENT_STEP_DELAY_S = SETTLE_CLICK_S
-
-AGENT_MAX_STEPS = int(os.environ.get("VISION_AGENT_MAX_STEPS", "40"))
-
-# Gestos (scrcpy / ADB)
-TAP_DOWN_UP_S = float(os.environ.get("VISION_TAP_DOWN_UP", "0.02"))
-SCRCPY_SWIPE_MS = int(os.environ.get("VISION_SCRCPY_SWIPE_MS", "280"))
-SCRCPY_SWIPE_STEPS = int(os.environ.get("VISION_SCRCPY_SWIPE_STEPS", "12"))
-ADB_SWIPE_MS = int(os.environ.get("VISION_ADB_SWIPE_MS", "300"))
-LONG_PRESS_MS = int(os.environ.get("VISION_LONG_PRESS_MS", "600"))
-
-# Stream scrcpy (captura): 0 = resolução nativa; >0 limita o lado maior
-SCRCPY_MAX_SIZE = int(os.environ.get("VISION_SCRCPY_MAX_SIZE", "0"))
-SCRCPY_VIDEO_BIT_RATE = int(os.environ.get("VISION_SCRCPY_BITRATE", "8000000"))
-SCRCPY_MAX_FPS = int(os.environ.get("VISION_SCRCPY_MAX_FPS", "60"))
-# auto|scrcpy|adb — captura do agente
-CAPTURE_BACKEND = (os.environ.get("VISION_CAPTURE_BACKEND") or "auto").lower()
 
 
 def settle_for_action(acao: str | None) -> float:

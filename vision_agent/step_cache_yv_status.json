@@ -1,0 +1,2328 @@
+{
+  "mission": "yv_status_som",
+  "version": 9,
+  "device_profile": "720x1600",
+  "canonical": [
+    1080,
+    1920
+  ],
+  "notes": "auto_improve best=99.1s target=95s (4/4 OK, videos gravados)",
+  "timing": {
+    "yv_open_s": 0.972,
+    "after_long_s": 0.203,
+    "wa_open_s": 0.284,
+    "after_tap_s": 0.113,
+    "after_paste_s": 0.227,
+    "after_panel_s": 0.097,
+    "after_send_s": 0.446,
+    "scroll_s": 0.113,
+    "retry_s": 0.243
+  },
+  "checkpoints": {
+    "yv_verse": [
+      "quant à toi",
+      "paroles cach",
+      "navigate back",
+      "s21"
+    ],
+    "composer": [
+      "écrivez un statut",
+      "couleur de fond",
+      "envoyer",
+      "sans serif"
+    ],
+    "composer_ready": [
+      "envoyer",
+      "couleur de fond",
+      "sans serif",
+      "sans bold"
+    ],
+    "status_tab": [
+      "nouveau message de statut",
+      "mes mises à jour"
+    ],
+    "color_panel": [
+      "terminé",
+      "éléphant",
+      "scorpion",
+      "soleil"
+    ],
+    "font_panel": [
+      "terminé",
+      "sans bold",
+      "serif",
+      "calistoga"
+    ]
+  },
+  "transitions": {
+    "yv_verse": {
+      "next": "clipboard",
+      "shortcut": "clipboard"
+    },
+    "status_tab": {
+      "next": "pencil",
+      "shortcut": "deeplink_status+pencil"
+    },
+    "composer": {
+      "next": "edit",
+      "shortcut": "paste_then_style"
+    },
+    "composer_ready": {
+      "next": "send",
+      "shortcut": "aria_hit"
+    },
+    "color_panel": {
+      "next": "color",
+      "shortcut": "anticipate_intent"
+    },
+    "font_panel": {
+      "next": "font",
+      "shortcut": "anticipate_intent"
+    },
+    "unknown": {
+      "next": "ensure_composer",
+      "shortcut": "recover"
+    }
+  },
+  "steps": {
+    "verse_long": {
+      "aria": [
+        "quant à toi",
+        "4quant",
+        "paroles cach"
+      ],
+      "xy": [
+        532,
+        789
+      ],
+      "hit": [
+        532,
+        789
+      ],
+      "last_label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+    },
+    "status_tab": {
+      "xy": [
+        405,
+        1840
+      ]
+    },
+    "pencil": {
+      "aria": [
+        "nouveau message de statut"
+      ],
+      "xy": [
+        948,
+        1420
+      ],
+      "hit": [
+        945,
+        1420
+      ],
+      "last_label": "Nouveau message de statut"
+    },
+    "edit": {
+      "aria": [
+        "écrivez un statut",
+        "écrivez"
+      ],
+      "xy": [
+        540,
+        480
+      ],
+      "hit": [
+        540,
+        480
+      ],
+      "last_label": "Écrivez un statut"
+    },
+    "palette": {
+      "aria": [
+        "couleur de fond"
+      ],
+      "xy": [
+        978,
+        162
+      ],
+      "hit": [
+        978,
+        162
+      ],
+      "last_label": "Couleur de fond"
+    },
+    "color": {
+      "aria": [
+        "éléphant",
+        "elephant"
+      ],
+      "mode": "anticipate",
+      "from_right": 3,
+      "max_scrolls": 8,
+      "hit": [
+        824,
+        1498
+      ],
+      "fila_end": [
+        "Glycine",
+        "Bleu pluie",
+        "Gris clair",
+        "Étoile de mer",
+        "Éléphant",
+        "Rose brûlé",
+        "Scorpion"
+      ],
+      "last_label": "Éléphant"
+    },
+    "termine": {
+      "aria": [
+        "terminé",
+        "termine",
+        "done"
+      ],
+      "xy": [
+        218,
+        162
+      ],
+      "hit": [
+        218,
+        162
+      ],
+      "last_label": "TERMINÉ"
+    },
+    "font_aa": {
+      "aria": [
+        "sans serif"
+      ],
+      "xy": [
+        834,
+        162
+      ],
+      "hit": [
+        834,
+        162
+      ],
+      "last_label": "Sans Serif"
+    },
+    "font": {
+      "aria": [
+        "sans bold",
+        "bold"
+      ],
+      "exact": true,
+      "xy": [
+        984,
+        1498
+      ],
+      "hit": [
+        984,
+        1498
+      ],
+      "max_scrolls": 3,
+      "last_label": "Sans Bold",
+      "mode": "anticipate"
+    },
+    "send": {
+      "aria": [
+        "envoyer",
+        "send"
+      ],
+      "xy": [
+        984,
+        1774
+      ],
+      "hit": [
+        984,
+        1774
+      ],
+      "last_label": "Envoyer"
+    }
+  },
+  "history": [
+    {
+      "ok": true,
+      "elapsed_s": 126.8,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            648,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784680102.86
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784680109.01
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784680119.48
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784680131.08
+        },
+        {
+          "why": "color",
+          "xy": [
+            648,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784680169.86
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680174.88
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784680184.55
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784680199.93
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680205.03
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784680214.67
+        }
+      ],
+      "ts": "2026-07-21T21:30:21"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 120.9,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            648,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784680346.2
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784680352.74
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784680363.12
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784680374.51
+        },
+        {
+          "why": "color",
+          "xy": [
+            648,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784680406.71
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680411.75
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784680421.37
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784680436.58
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680441.69
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784680451.26
+        }
+      ],
+      "ts": "2026-07-21T21:34:17"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 122.0,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            648,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784680658.65
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784680664.8
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784680674.92
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784680686.29
+        },
+        {
+          "why": "color",
+          "xy": [
+            648,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784680719.3
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680724.34
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784680734.02
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784680749.35
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784680754.52
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784680764.17
+        }
+      ],
+      "ts": "2026-07-21T21:39:32"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 148.7,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            770,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            1033,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784681063.17
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784681072.06
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784681083.38
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784681094.94
+        },
+        {
+          "why": "color",
+          "xy": [
+            770,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784681150.35
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784681155.36
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784681164.98
+        },
+        {
+          "why": "font",
+          "xy": [
+            1033,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784681181.17
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784681186.28
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784681195.9
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "ts": "2026-07-21T21:46:42"
+    },
+    {
+      "ok": false,
+      "elapsed_s": 176.8,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "font_aa": {
+          "hit": [
+            96,
+            631
+          ],
+          "label": "Sans Serif"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784681677.4
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784681683.78
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784681693.93
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784681706.32
+        },
+        {
+          "why": "termine-color",
+          "xy": [
+            218,
+            162
+          ],
+          "t": 1784681741.52
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784681752.25
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784681762.54
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            96,
+            631
+          ],
+          "label": "Sans Serif",
+          "t": 1784681772.34
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            96,
+            631
+          ],
+          "label": "Sans Serif",
+          "t": 1784681782.45
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "t": 1784681796.92
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "t": 1784681811.17
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "t": 1784681825.83
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "t": 1784681840.4
+        }
+      ],
+      "pred": {
+        "env": "composer",
+        "score": 0.5,
+        "step": "edit",
+        "shortcut": "paste_then_style",
+        "confidence": "media",
+        "ranked": [
+          [
+            "composer",
+            0.5
+          ],
+          [
+            "composer_ready",
+            0.5
+          ],
+          [
+            "font_panel",
+            0.25
+          ],
+          [
+            "yv_verse",
+            0.0
+          ]
+        ],
+        "hist_next": "color"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T21:57:25"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 123.3,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            686,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784682002.72
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            948,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784682009.26
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784682019.57
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784682031.23
+        },
+        {
+          "why": "color",
+          "xy": [
+            686,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784682060.61
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682065.72
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784682075.63
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784682095.66
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682100.8
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784682110.43
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:01:57"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 96.6,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            816,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784682258.2
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784682264.92
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784682275.34
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784682286.97
+        },
+        {
+          "why": "color",
+          "xy": [
+            816,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784682292.22
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682297.27
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784682306.88
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784682322.48
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682327.74
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784682337.47
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:05:44"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 117.5,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            1058,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784682441.41
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784682448.14
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784682458.59
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784682470.11
+        },
+        {
+          "why": "color",
+          "xy": [
+            1058,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784682499.19
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682504.27
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784682513.95
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784682529.2
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682534.27
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784682543.84
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:09:09"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 136.1,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            648,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784682681.84
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784682689.64
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784682699.76
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784682711.87
+        },
+        {
+          "why": "color",
+          "xy": [
+            648,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784682757.98
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682763.04
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784682772.81
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784682787.92
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784682793.0
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784682802.58
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:13:29"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 113.5,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            692,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784683029.87
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            960,
+            1419
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784683036.41
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784683047.43
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784683058.93
+        },
+        {
+          "why": "color",
+          "xy": [
+            692,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784683083.91
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784683088.99
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784683098.61
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784683113.72
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784683118.82
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784683128.41
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:18:54"
+    },
+    {
+      "ok": true,
+      "elapsed_s": 98.5,
+      "serial": "192.168.1.161:5555",
+      "last_good": "send",
+      "hits": {
+        "verse_long": {
+          "hit": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le "
+        },
+        "pencil": {
+          "hit": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut"
+        },
+        "edit": {
+          "hit": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut"
+        },
+        "palette": {
+          "hit": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond"
+        },
+        "color": {
+          "hit": [
+            824,
+            1498
+          ],
+          "label": "Éléphant"
+        },
+        "termine": {
+          "hit": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ"
+        },
+        "font_aa": {
+          "hit": [
+            834,
+            162
+          ],
+          "label": "Sans Serif"
+        },
+        "font": {
+          "hit": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold"
+        },
+        "send": {
+          "hit": [
+            984,
+            1774
+          ],
+          "label": "Envoyer"
+        }
+      },
+      "trail": [
+        {
+          "why": "verse_long",
+          "xy": [
+            532,
+            789
+          ],
+          "label": "4Quant à toi, Daniel, tiensces paroles cachées et marque le ",
+          "t": 1784683275.93
+        },
+        {
+          "why": "pencil",
+          "xy": [
+            945,
+            1420
+          ],
+          "label": "Nouveau message de statut",
+          "t": 1784683281.92
+        },
+        {
+          "why": "edit",
+          "xy": [
+            540,
+            480
+          ],
+          "label": "Écrivez un statut",
+          "t": 1784683292.14
+        },
+        {
+          "why": "palette",
+          "xy": [
+            978,
+            162
+          ],
+          "label": "Couleur de fond",
+          "t": 1784683303.78
+        },
+        {
+          "why": "color",
+          "xy": [
+            824,
+            1498
+          ],
+          "label": "Éléphant",
+          "t": 1784683315.16
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784683320.22
+        },
+        {
+          "why": "font_aa",
+          "xy": [
+            834,
+            162
+          ],
+          "label": "Sans Serif",
+          "t": 1784683329.91
+        },
+        {
+          "why": "font",
+          "xy": [
+            984,
+            1498
+          ],
+          "label": "Sans Bold",
+          "t": 1784683344.82
+        },
+        {
+          "why": "termine",
+          "xy": [
+            218,
+            162
+          ],
+          "label": "TERMINÉ",
+          "t": 1784683349.87
+        },
+        {
+          "why": "send",
+          "xy": [
+            984,
+            1774
+          ],
+          "label": "Envoyer",
+          "t": 1784683359.41
+        }
+      ],
+      "pred": {
+        "env": "composer_ready",
+        "score": 0.95,
+        "step": "send",
+        "shortcut": "aria_hit",
+        "confidence": "alta",
+        "ranked": [
+          [
+            "composer_ready",
+            0.9
+          ],
+          [
+            "yv_verse",
+            0.75
+          ],
+          [
+            "composer",
+            0.4
+          ],
+          [
+            "font_panel",
+            0.4
+          ]
+        ],
+        "hist_next": "send"
+      },
+      "intent": {
+        "color": "Éléphant",
+        "font": "Sans Bold"
+      },
+      "ts": "2026-07-21T22:22:45"
+    }
+  ],
+  "intent": {
+    "color": "Éléphant",
+    "font": "Sans Bold",
+    "skip_other_styles": true,
+    "anticipation": {
+      "color": {
+        "direction": "left",
+        "scroll_bursts": 5,
+        "step_px": 300,
+        "row_cy": [
+          1400,
+          1600
+        ],
+        "land_markers": [
+          "scorpion",
+          "rose brûlé",
+          "éléphant",
+          "elephant"
+        ]
+      },
+      "font": {
+        "direction": "left",
+        "scroll_bursts": 2,
+        "step_px": 260,
+        "row_cy": [
+          550,
+          1650
+        ],
+        "land_markers": [
+          "sans bold"
+        ]
+      }
+    }
+  },
+  "auto_improve": {
+    "done": false,
+    "best_elapsed_s": 99.1,
+    "target_s": 95.0,
+    "rounds": 4,
+    "timing": {
+      "yv_open_s": 0.972,
+      "after_long_s": 0.203,
+      "wa_open_s": 0.284,
+      "after_tap_s": 0.113,
+      "after_paste_s": 0.227,
+      "after_panel_s": 0.097,
+      "after_send_s": 0.446,
+      "scroll_s": 0.113,
+      "retry_s": 0.243
+    },
+    "video": "vision_agent/frames/auto_improve/round3_20260721_223150.mp4"
+  }
+}

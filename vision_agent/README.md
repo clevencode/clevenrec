@@ -1,8 +1,13 @@
-# vision_agent — Bloco 1 + Central de Agente
+# vision_agent — base de navegação ADB
 
-Captura ADB + filtro de estabilidade + **agente IA** (visão → JSON → toque scrcpy/ADB).
+Automação de telemóvel Android por **ADB + scrcpy + Set-of-Mark + comando remoto (aria-label)**.  
+Validado ponta-a-ponta: YouVersion → WhatsApp Status (texto + cor + fonte + enviar).
 
-## Setup
+**Sem OpenAI / sem servidor de agente** nesta base. A IA pode ser um nível seguinte em cima desta pilha.
+
+---
+
+## Setup rápido
 
 ```bash
 cd C:\Users\Clevy\Projects\clevenrec
@@ -11,51 +16,57 @@ python -m venv .venv
 pip install -r vision_agent\requirements.txt
 ```
 
-Defina a chave da IA (OpenAI-compatible):
+Variáveis úteis:
+
+| Env | Função |
+|-----|--------|
+| `VISION_ADB_SERIAL` | Serial USB ou `IP:5555` (Wi‑Fi). Se vazio, usa o 1º device online |
+| `ADB_PATH` | Caminho do `adb.exe` |
+| `SCRCPY_DIR` | Pasta com `scrcpy.exe` / `scrcpy-server` |
 
 ```bash
-set OPENAI_API_KEY=sk-...
-rem opcional:
-set OPENAI_BASE_URL=https://api.openai.com/v1
-set OPENAI_VISION_MODEL=gpt-4o-mini
-```
-
-## Performance ADB / scrcpy
-
-- **Toques:** preferência `scrcpy` control socket; fallback `AdbShellSession` (um `adb shell` aberto, comandos via stdin — sem spawn por clique).
-- **Texto:** scrcpy `inject_text` (≤300 bytes) ou `SET_CLIPBOARD`+paste — sem `adb input text`. Fallback ADB só se o control cair.
-- **Captura (agente):** stream H.264 do **mesmo** scrcpy (`ScrcpyFrameSource`) — sem `screencap` por passo. Fallback ADB: `exec-out` com ordem **gzip -1 → raw → PNG**.
-- Env: `VISION_CAPTURE_BACKEND=auto|scrcpy|adb`, `VISION_SCRCPY_MAX_SIZE=1080`.
-
-## Captura (Bloco 1)
-
-```bash
-python -m vision_agent.loop
+# Captura contínua (filtro de mudança)
 python -m vision_agent.loop --show --max-frames 5
+
+# Missão de referência (YouVersion → Status)
+set VISION_ADB_SERIAL=192.168.1.161:5555
+set PYTHONIOENCODING=utf-8
+python -u -m vision_agent.yv_status_som_test
 ```
 
-## Servidor do agente (central)
+Frames do teste: `vision_agent/frames/yv_som_test/`.
 
-```bash
-python -m vision_agent.server
+---
+
+## Documentação
+
+| Doc | Conteúdo |
+|-----|----------|
+| **[docs/BASE_NAVEGACAO.md](docs/BASE_NAVEGACAO.md)** | Arquitetura, camadas, APIs, lições aprendidas, roadmap de níveis |
+| Este README | Setup + mapa do pacote + comandos |
+
+---
+
+## Mapa do pacote
+
+```
+vision_agent/
+├── capture.py      # Frame: scrcpy H.264 ou ADB screencap
+├── normalize.py    # → 1080×1920 canónico
+├── filter.py       # Mudança de pixels (estabilidade)
+├── som.py          # Set-of-Mark (uiautomator → marcas + aria)
+├── precision.py    # Hit-point, snap, mapa físico, swipe suave
+├── remote.py       # Controlo remoto TV (go / move / swipe / dismiss)
+├── executor.py     # Toques scrcpy control + fallback ADB
+├── config.py       # Constantes + env
+├── loop.py         # Loop de captura (Bloco 1)
+├── yv_status_som_test.py   # Missão de referência (10/10)
+└── docs/BASE_NAVEGACAO.md  # Base para próximos níveis
 ```
 
-API em `http://127.0.0.1:8790`:
+---
 
-- `GET /health`
-- `POST /agent/start` `{"objetivo":"..."}`
-- `POST /agent/stop`
-- `GET /agent/status`
+## Ideia em uma frase
 
-No ClevenRec, o card **Agente** sobe esse servidor automaticamente (via `.venv`).
-
-## Arquitetura
-
-1. Captura frame (stream scrcpy H.264, fallback ADB) → 1080×1920  
-2. Filtro de mudança  
-3. Visão multimodal → JSON (`prompts/system.md`)  
-4. Execução: scrcpy control socket (rápido) com fallback ADB  
-
-## Prompt
-
-Ver [prompts/system.md](prompts/system.md).
+Tratar o ecrã como um **carro autónomo controlado por comando de TV**:  
+perceber (SoM/aria) → localizar (coords físicas) → actuar (hit-point) → verificar → autocorrigir.

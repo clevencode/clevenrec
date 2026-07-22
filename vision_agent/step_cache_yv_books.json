@@ -1,0 +1,58 @@
+{
+  "mission": "yv_books",
+  "version": 2,
+  "package": "com.sirma.mobile.bible.android",
+  "device_profile": "720x1600",
+  "canonical": [1080, 1920],
+  "notes": "Navegação YouVersion por livros. Teach 2026-07-21 23:02: scroll bidireccional + grelha de capítulos inline ao expandir livro.",
+  "teach_source": "events_20260721_230239.jsonl",
+  "version_id": 152,
+  "abbr": "S21",
+  "deeplink_template": "https://www.bible.com/bible/{version_id}/{BOOK}.{CHAPTER}.{VERSE}.{abbr}",
+  "ui": {
+    "bible_tab": {"aria": ["bible", "tab 2 of 5"], "xy": [324, 1746]},
+    "book_chip": {
+      "aria": ["genèse", "exode", "daniel", "jean"],
+      "pattern": "BookName N",
+      "cy_min": 1650,
+      "xy_fallback": [636, 1759]
+    },
+    "books_tab": {"aria": ["books", "livres"]},
+    "history_tab": {"aria": ["history"]},
+    "book_list": {
+      "scroll": "vertical_bidirectional",
+      "has_search_edittext": true,
+      "observed_regions": [
+        "NT mid: Jean, Actes, Romains, … 1 Timothée",
+        "OT prophets: Esaïe … Habakuk",
+        "NT end: Tite … Apocalypse"
+      ],
+      "row_examples": ["Genèse", "Exode", "Daniel", "Jean", "1 Thessaloniciens", "Apocalypse"]
+    },
+    "chapter_grid": {
+      "pattern": "^\\d{1,3}$",
+      "cy_min": 400,
+      "appears_inline_after_book_tap": true,
+      "example": "1 Thessaloniciens | 2 Thessaloniciens | 1 | 2 | 3 | 1 Timothée"
+    }
+  },
+  "learned_flow": [
+    "open reader (deeplink or existing)",
+    "tap bottom chip (Book Chapter)",
+    "Books list with EditText + Books/History tabs",
+    "scroll list both directions OR filter EditText",
+    "tap book name → chapter numbers appear inline (1,2,3,…)",
+    "tap chapter number → reader"
+  ],
+  "teach_session_20260721_230239": {
+    "taps_captured": 0,
+    "note": "getevent sem toques (sem root); UI poll OK",
+    "ui_path": [
+      "launcher/notif",
+      "Books: Jean…1 Timothée",
+      "scroll → Esaïe…Habakuk",
+      "expand near 1 Thessaloniciens → chapters 1|2|3",
+      "scroll → Tite…Apocalypse (sem abrir reader)"
+    ]
+  }
+}

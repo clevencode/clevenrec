@@ -17,14 +17,22 @@ from .config import (
     CANONICAL_HEIGHT,
     CANONICAL_WIDTH,
     LONG_PRESS_MS,
+    PRECISION_VERIFY,
     SCRCPY_MAX_FPS,
     SCRCPY_MAX_SIZE,
     SCRCPY_SWIPE_MS,
     SCRCPY_SWIPE_STEPS,
     SCRCPY_VIDEO_BIT_RATE,
+    SNAP_MAX_DIST_PX,
     TAP_DOWN_UP_S,
     resolve_adb_path,
     resolve_scrcpy_dir,
+)
+from .precision import (
+    map_canonical_to_physical,
+    precise_tap,
+    resolve_tap_target,
+    swipe_path_smooth,
 )
 
 # scrcpy 2+/3+/4 video codec ids (big-endian fourcc-ish)
@@ -255,8 +263,12 @@ class ScrcpyController:
         self._control_sock: Optional[socket.socket] = None
         self._drain_thread: Optional[threading.Thread] = None
         self._stop_drain = threading.Event()
+        # Tamanho FÍSICO do display (wm size) — espaço dos toques / uiautomator
         self._device_w = CANONICAL_WIDTH
         self._device_h = CANONICAL_HEIGHT
+        # Tamanho do frame de vídeo (pode diferir se max_size>0) — só captura
+        self._video_w = CANONICAL_WIDTH
+        self._video_h = CANONICAL_HEIGHT
         self._connected = False
         self.last_error: Optional[str] = None
         self.device_name: str = ""
@@ -294,7 +306,16 @@ class ScrcpyController:
                 if "x" in part:
                     w, h = part.lower().split("x")
                     self._device_w, self._device_h = int(w.strip()), int(h.strip())
+                    self._video_w, self._video_h = self._device_w, self._device_h
                     return
+
+    @property
+    def physical_size(self) -> tuple[int, int]:
+        return int(self._device_w), int(self._device_h)
+
+    @property
+    def video_size(self) -> tuple[int, int]:
+        return int(self._video_w), int(self._video_h)
 
     @staticmethod
     def _recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -434,11 +455,12 @@ class ScrcpyController:
                 except (ConnectionError, OSError):
                     break
 
-                # Session packet (MSB=1): width/height da sessão de captura
+                # Session packet (MSB=1): width/height da sessão de captura (vídeo)
+                # NÃO sobrescrever _device_w/h físicos — toques usam wm size.
                 if header[0] & 0x80:
                     w, h = struct.unpack(">II", header[4:12])
                     if w > 0 and h > 0:
-                        self._device_w, self._device_h = int(w), int(h)
+                        self._video_w, self._video_h = int(w), int(h)
                     continue
 
                 _pts_flags, packet_size = struct.unpack(">QI", header)
@@ -586,15 +608,15 @@ class ScrcpyController:
             raise RuntimeError("scrcpy control não conectado")
         dur = SCRCPY_SWIPE_MS if duration_ms is None else duration_ms
         n = SCRCPY_SWIPE_STEPS if steps is None else steps
-        self._send_control(self._pack_touch(ACTION_DOWN, x1, y1, 1.0))
-        dt = dur / 1000.0 / max(n, 1)
-        for i in range(1, n + 1):
-            t = i / n
-            x = int(x1 + (x2 - x1) * t)
-            y = int(y1 + (y2 - y1) * t)
+        path = swipe_path_smooth(x1, y1, x2, y2, steps=n)
+        sx, sy = path[0]
+        self._send_control(self._pack_touch(ACTION_DOWN, sx, sy, 1.0))
+        dt = dur / 1000.0 / max(len(path) - 1, 1)
+        for x, y in path[1:-1]:
             self._send_control(self._pack_touch(ACTION_MOVE, x, y, 1.0))
             time.sleep(dt)
-        self._send_control(self._pack_touch(ACTION_UP, x2, y2, 0.0))
+        ex, ey = path[-1]
+        self._send_control(self._pack_touch(ACTION_UP, ex, ey, 0.0))
 
     def close(self) -> None:
         self._connected = False
@@ -627,35 +649,47 @@ def map_canonical_to_device(
     canon_w: int = CANONICAL_WIDTH,
     canon_h: int = CANONICAL_HEIGHT,
 ) -> tuple[int, int]:
-    nx = int(x * device_w / canon_w)
-    ny = int(y * device_h / canon_h)
-    nx = max(0, min(device_w - 1, nx))
-    ny = max(0, min(device_h - 1, ny))
-    return nx, ny
+    """Alias estável: canônico → físico (wm size)."""
+    return map_canonical_to_physical(x, y, device_w, device_h, canon_w, canon_h)
 
 
 class ActionExecutor:
-    """Executa decisões JSON do brain (coords canônicas 1080x1920)."""
+    """
+    Executa decisões JSON (coords canônicas 1080×1920).
+
+    Precisão (carro autônomo ADB):
+      - marca SoM → hit-point inset
+      - snap de coords livres ao nó UI
+      - toques sempre no espaço físico (wm size), independente do vídeo
+      - verify+retry com micro-offsets (opcional)
+    """
 
     def __init__(
         self,
         serial: Optional[str] = None,
         adb_path: Optional[str] = None,
         prefer_scrcpy: bool = True,
+        *,
+        precision_verify: bool | None = None,
     ) -> None:
         self.adb_path = adb_path or resolve_adb_path()
         self.serial = serial or self._first_serial()
         self.adb = AdbInputFallback(self.adb_path, self.serial)
         self.scrcpy = ScrcpyController(self.adb_path, self.serial)
         self.prefer_scrcpy = prefer_scrcpy
+        self.precision_verify = (
+            PRECISION_VERIFY if precision_verify is None else precision_verify
+        )
         self.backend = "adb"
         if prefer_scrcpy and self.scrcpy.connect():
             self.backend = "scrcpy"
+        # Sempre físico — alinhado ao uiautomator / input tap
         self.device_w, self.device_h = self.adb.device_size()
         if self.backend == "scrcpy":
-            # Toques scrcpy usam o espaço do frame de vídeo
-            self.device_w = int(self.scrcpy._device_w)
-            self.device_h = int(self.scrcpy._device_h)
+            pw, ph = self.scrcpy.physical_size
+            if pw > 0 and ph > 0:
+                self.device_w, self.device_h = pw, ph
+        self.last_marks: list[Any] = []
 
     def _first_serial(self) -> str:
         r = _run([self.adb_path, "devices"])
@@ -666,11 +700,32 @@ class ActionExecutor:
                 return line.split("\t")[0].strip()
         raise RuntimeError("Nenhum dispositivo ADB online.")
 
+    def set_marks(self, marks: list[Any]) -> None:
+        """Atualiza marcas SoM usadas no snap / resolve de `marca`."""
+        self.last_marks = list(marks or [])
+
     def _xy(self, decision: dict[str, Any]) -> tuple[int, int]:
-        coords = decision.get("coordenadas") or {}
-        x = int(coords.get("x", CANONICAL_WIDTH // 2))
-        y = int(coords.get("y", CANONICAL_HEIGHT // 2))
-        return map_canonical_to_device(x, y, self.device_w, self.device_h)
+        """Resolve alvo canônico → físico (com snap/marca se disponível)."""
+        target = resolve_tap_target(
+            decision,
+            self.last_marks,
+            snap=True,
+            max_snap_dist=SNAP_MAX_DIST_PX,
+        )
+        return map_canonical_to_physical(
+            target.x, target.y, self.device_w, self.device_h
+        )
+
+    def _resolve_canonical(
+        self, decision: dict[str, Any]
+    ) -> tuple[int, int, dict[str, Any]]:
+        target = resolve_tap_target(
+            decision,
+            self.last_marks,
+            snap=True,
+            max_snap_dist=SNAP_MAX_DIST_PX,
+        )
+        return target.x, target.y, target.as_dict()
 
     def _touch_backend(self):
         if self.backend == "scrcpy" and self.scrcpy.connected:
@@ -693,6 +748,29 @@ class ActionExecutor:
             else:
                 raise
 
+    def _grab_canonical(self) -> Optional[np.ndarray]:
+        """Frame para verificação de efeito (BGR; prefer scrcpy)."""
+        try:
+            from .normalize import normalize_frame
+
+            if self.backend == "scrcpy" and self.scrcpy.connected:
+                fr = self.scrcpy.wait_frame(timeout=0.6)
+                if fr is not None:
+                    return normalize_frame(fr)
+            # fallback ADB PNG
+            raw = _run(
+                [self.adb_path, "-s", self.serial, "exec-out", "screencap", "-p"],
+                timeout=12.0,
+            ).stdout
+            import cv2
+
+            img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return None
+            return normalize_frame(img)
+        except Exception:
+            return None
+
     def execute(self, decision: dict[str, Any]) -> dict[str, Any]:
         acao = (decision.get("acao") or "").strip().lower()
         result: dict[str, Any] = {
@@ -701,26 +779,76 @@ class ActionExecutor:
             "backend": self.backend,
         }
 
+        # Permite injetar marcas só nesta decisão
+        marks = decision.get("marks")
+        if marks is not None:
+            self.set_marks(marks)
+
         if acao in ("concluido", "aguardar", ""):
             result["skipped"] = True
             return result
 
+        verify = bool(decision.get("verify", self.precision_verify))
+        # long_click: verificar muda menos (mesmo ecrã) — desliga por defeito
+        if acao == "long_click" and "verify" not in decision:
+            verify = False
+
         try:
-            if acao == "click":
-                x, y = self._xy(decision)
-                result["xy"] = [x, y]
-                self._run_touch(result, "tap", x, y)
-            elif acao == "long_click":
-                x, y = self._xy(decision)
-                result["xy"] = [x, y]
-                self._run_touch(result, "long_press", x, y)
+            if acao in ("click", "long_click"):
+                cx, cy, meta = self._resolve_canonical(decision)
+                result["target"] = meta
+                result["xy_canonical"] = [cx, cy]
+
+                if acao == "click" and verify:
+
+                    def _tap(px: int, py: int) -> None:
+                        self._run_touch(result, "tap", px, py)
+
+                    def _grab() -> np.ndarray:
+                        fr = self._grab_canonical()
+                        if fr is None:
+                            raise RuntimeError("sem frame para verify")
+                        return fr
+
+                    prec = precise_tap(
+                        tap_fn=_tap,
+                        grab_fn=_grab,
+                        canon_x=cx,
+                        canon_y=cy,
+                        physical_w=self.device_w,
+                        physical_h=self.device_h,
+                        verify=True,
+                        acao=acao,
+                    )
+                    result.update(
+                        {
+                            "xy": prec.get("xy_physical"),
+                            "precision": prec,
+                            "ok": bool(prec.get("ok", True)),
+                        }
+                    )
+                    if prec.get("message"):
+                        result["message"] = prec["message"]
+                else:
+                    x, y = map_canonical_to_physical(
+                        cx, cy, self.device_w, self.device_h
+                    )
+                    result["xy"] = [x, y]
+                    if acao == "click":
+                        self._run_touch(result, "tap", x, y)
+                    else:
+                        self._run_touch(result, "long_press", x, y)
             elif acao == "swipe_up":
-                x, y = self._xy(decision)
+                cx, cy, meta = self._resolve_canonical(decision)
+                result["target"] = meta
+                x, y = map_canonical_to_physical(cx, cy, self.device_w, self.device_h)
                 x2, y2 = x, max(40, y - int(self.device_h * 0.35))
                 result["xy"] = [x, y, x2, y2]
                 self._run_touch(result, "swipe", x, y, x2, y2)
             elif acao == "swipe_down":
-                x, y = self._xy(decision)
+                cx, cy, meta = self._resolve_canonical(decision)
+                result["target"] = meta
+                x, y = map_canonical_to_physical(cx, cy, self.device_w, self.device_h)
                 x2, y2 = x, min(self.device_h - 40, y + int(self.device_h * 0.35))
                 result["xy"] = [x, y, x2, y2]
                 self._run_touch(result, "swipe", x, y, x2, y2)

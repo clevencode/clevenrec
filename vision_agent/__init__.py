@@ -1,3 +1,8 @@
-"""Vision agent — Bloco 1: captura ADB + filtro de estabilidade."""
+"""Vision agent — captura ADB/scrcpy + Set-of-Mark + precisão + remote.
 
-__version__ = "0.1.0"
+Documentação de base (próximos níveis):
+  README.md
+  docs/BASE_NAVEGACAO.md
+"""
+
+__version__ = "0.4.0"
